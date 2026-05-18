@@ -148,6 +148,51 @@ curl -s -X POST http://localhost:8080/api/ask \
   -d '{"question":"장병내일준비적금 만기 때 어떤 서류가 필요해?"}'
 ```
 
+대표 질문 확인:
+
+```bash
+curl -s -X POST http://localhost:8080/api/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"ㅎㅇ"}'
+
+curl -s -X POST http://localhost:8080/api/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"예금 종류"}'
+
+curl -s -X POST http://localhost:8080/api/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"50대인데 추천해주세요"}'
+
+curl -s -X POST http://localhost:8080/api/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"펫 적금 혜택 받으려면 뭘 해야 해?"}'
+```
+
+기대 방향:
+
+- `ㅎㅇ`: 상품 추천이 아니라 인사와 안내 문장
+- `예금 종류`: 적립식예금, 거치식예금, 입출금자유예금 등 예금상품 분류 안내
+- `50대인데 추천해주세요`: 청년 전용 상품 제외, 중장년층이 확인할 만한 적립식예금 추천
+- `펫 적금 혜택`: 펫 적금 문서만 출처로 사용
+
+대표 질문 10개를 한 번에 확인하려면:
+
+```bash
+python3 scripts/check_representative_questions.py \
+  --base-url http://localhost:8080 \
+  --timeout 90
+```
+
+배포 API까지 확인하려면:
+
+```bash
+python3 scripts/check_representative_questions.py \
+  --base-url https://api.bnkaichat.xyz \
+  --timeout 90
+```
+
+이 스크립트가 성공하면 인사말, 예금 종류, 추천, 주요 상품 질문의 기본 동작이 유지된 것이다.
+
 출처 PDF 다운로드 확인:
 
 ```bash
@@ -311,7 +356,7 @@ tail -n 50 /tmp/finance-rag-tunnel.log
 
 Vercel에는 Spring 프로젝트 전체를 빌드해서 올리는 것이 아니라 정적 프론트 폴더만 올린다.
 
-Vercel 설정:
+권장 설정:
 
 ```text
 GitHub Repository: https://github.com/thisis-joe/financellmchat
@@ -321,7 +366,23 @@ Build Command: 비움
 Output Directory: .
 ```
 
-`src/main/resources/static/vercel.json`은 Vercel에서 `/api/*` 요청을 API 도메인으로 넘긴다.
+Vercel 프로젝트가 repo 루트를 Root Directory로 보고 있어도 동작하도록 루트 `vercel.json`도 둔다. 이 파일은 output directory를 `src/main/resources/static`으로 지정하고 `/api/*` 요청을 API 도메인으로 넘긴다.
+
+```json
+{
+  "buildCommand": null,
+  "installCommand": null,
+  "outputDirectory": "src/main/resources/static",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://api.bnkaichat.xyz/api/:path*"
+    }
+  ]
+}
+```
+
+만약 Vercel의 Root Directory를 `src/main/resources/static`으로 직접 설정했다면, 해당 폴더 안의 `vercel.json`이 `/api/*` 요청을 API 도메인으로 넘긴다.
 
 ```json
 {
@@ -352,6 +413,14 @@ curl -s -X POST https://api.bnkaichat.xyz/api/ask \
 
 브라우저에서는 Vercel에 연결한 프론트 도메인으로 접속한 뒤 챗봇에서 질문한다. 답변이 나오고 출처 카드의 `다운로드`가 PDF를 내려받으면 배포 흐름이 연결된 것이다.
 
+Vercel에서 404가 뜰 때 확인할 것:
+
+- Root Directory가 `src/main/resources/static`인지 확인한다.
+- repo 루트를 Root Directory로 쓴다면 루트 `vercel.json`이 포함된 커밋이 배포됐는지 확인한다.
+- Build Command는 비우거나 `null`로 둔다.
+- Output Directory는 repo 루트 기준 `src/main/resources/static`, 정적 폴더 Root Directory 기준 `.`로 둔다.
+- 설정 변경 뒤에는 반드시 새 배포를 실행한다.
+
 ## 용어 메모
 
 - 가상환경: Python 패키지를 프로젝트별로 분리해 설치하는 실행 환경이다.
@@ -365,3 +434,7 @@ curl -s -X POST https://api.bnkaichat.xyz/api/ask \
 - nameserver: 특정 도메인의 DNS 정보를 어느 서비스가 관리하는지 알려주는 서버다.
 - Cloudflare Tunnel: 로컬 서버를 외부 도메인에 연결하되 공유기 포트포워딩을 하지 않아도 되는 방식이다.
 - Vercel rewrite: 프론트에서 호출한 경로를 Vercel이 다른 백엔드 주소로 전달하는 설정이다.
+- 대표 질문: 기능이 계속 정상 동작하는지 빠르게 확인하기 위해 정해 둔 시연용 질문이다.
+- 기대 방향: 답변이 반드시 글자 그대로 같을 필요는 없지만 지켜야 하는 의미와 조건이다.
+- 배포 API: Vercel 화면이나 외부 사용자가 호출하게 될 공개 API 주소다. 현재는 Cloudflare Tunnel을 통해 로컬 Spring으로 연결된다.
+- Output Directory: Vercel이 실제로 정적 파일을 찾아 서빙하는 폴더다.

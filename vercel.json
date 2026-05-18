@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": null,
+  "installCommand": null,
+  "outputDirectory": "src/main/resources/static",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://api.bnkaichat.xyz/api/:path*"
+    }
+  ]
+}
