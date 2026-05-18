@@ -26,6 +26,9 @@
 7. `06-phase-4-thinking.md`
    - 4차에서 검색 품질을 어떻게 발견하고 개선했는지 읽는다.
 
+8. `07-phase-5-thinking.md`
+   - 5차에서 왜 Vercel 정적 프론트와 Cloudflare Tunnel API 배포로 나누었는지 읽는다.
+
 ## 한 문단으로 이해하기
 
 이 프로젝트는 `BNK부산은행 상품공시 > 예금상품 > 적립식예금` PDF를 바탕으로 사용자의 질문에 답하는 RAG 학습 프로젝트다. 사용자가 브라우저 챗봇에 질문하면 Spring Boot가 `/api/ask` 요청을 받고, Python FastAPI RAG 서비스에 질문을 전달한다. Python은 MySQL에 저장된 PDF chunk를 검색하고, 검색된 근거를 Gemma 4 E4B 4bit MLX 모델 또는 문서기반 추출 답변으로 정리한다. Spring은 그 결과를 사용자에게 돌려주고 질문 이력과 피드백을 MySQL에 저장한다.
@@ -44,6 +47,7 @@
 - 출처 표시는 chunk 번호가 아니라 사용자가 알아볼 수 있는 파일 제목 중심으로 정리했다.
 - Spring은 질문 이력과 답변 피드백을 저장한다.
 - 프론트는 `index.html`, `style.css`, `app.js` 세 파일로 끝낸다.
+- 배포는 Vercel 정적 프론트와 Cloudflare Tunnel로 공개한 로컬 Spring API를 연결하는 방식으로 정리했다.
 
 ## 현재 아키텍처
 
@@ -57,6 +61,19 @@
   -> 검색 근거 기반 LLM 답변 또는 fallback 답변 반환
   -> Spring이 query_histories 저장
   -> 사용자가 피드백을 누르면 answer_feedbacks 저장
+```
+
+배포 후 외부 접속 흐름은 다음처럼 본다.
+
+```text
+사용자 브라우저
+  -> Vercel 정적 프론트
+  -> /api/* 요청 rewrite
+  -> https://api.bnkaichat.xyz
+  -> Cloudflare Tunnel
+  -> 개인 Mac의 Spring Boot :8080
+  -> Python RAG :8000
+  -> MySQL
 ```
 
 ## 코드에서 먼저 볼 파일
@@ -111,3 +128,6 @@ PDF 적재:
 - LLM: Large Language Model. 자연어 문장을 생성하거나 요약하는 대형 언어 모델이다.
 - extractive answer: 문서 안의 관련 문장을 뽑고 정리해 답하는 방식이다. 모델이 새 내용을 꾸며내는 위험을 줄일 수 있다.
 - MLX: Apple Silicon에서 모델 실행을 최적화하기 위한 머신러닝 런타임이다.
+- Vercel: 정적 프론트엔드와 웹 프로젝트를 쉽게 배포하는 플랫폼이다.
+- Cloudflare Tunnel: 집이나 회사 PC의 로컬 서버를 포트포워딩 없이 외부 도메인에 안전하게 연결하는 방식이다.
+- rewrite: 브라우저가 호출한 경로를 배포 플랫폼이 다른 서버 주소로 전달하는 설정이다.

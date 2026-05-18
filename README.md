@@ -9,6 +9,7 @@
 - MySQL: 상품설명 자료와 질문 기록 저장
 - Python FastAPI: MySQL 문서 기반 하이브리드 검색, LangGraph 워크플로, Gemma MLX 답변 생성
 - Frontend: `index.html`, `style.css`, `app.js` 정적 파일 3개
+- Deployment: Vercel 정적 프론트 + Cloudflare Tunnel API 연결
 
 ## 실행 순서
 
@@ -41,6 +42,16 @@ uvicorn app:app --reload --port 8000
 
 브라우저에서 `http://localhost:8080`에 접속합니다.
 
+## 배포 방향
+
+프론트엔드는 Vercel에 정적 사이트로 배포하고, API는 항상 켜져 있는 개인 Mac의 Spring Boot 서버를 Cloudflare Tunnel로 공개한다.
+
+- Vercel 프로젝트 루트: `src/main/resources/static`
+- API 도메인: `https://api.bnkaichat.xyz`
+- 프론트 API 연결: `src/main/resources/static/vercel.json`의 `/api/*` rewrite
+
+Cloudflare에서 도메인 활성화를 기다리라는 상태라면, 가비아에 입력한 Cloudflare nameserver가 전파되는 중이다. 활성화 뒤 `api.bnkaichat.xyz`를 Cloudflare Tunnel에 연결하고, Vercel에는 프론트 도메인만 연결한다. 자세한 절차는 `docs/01-runbook.md`를 따른다.
+
 ## 학습 문서
 
 문서는 번호 순서대로 읽으면 자연스럽게 이해되도록 정리했습니다.
@@ -52,6 +63,7 @@ uvicorn app:app --reload --port 8000
 - `docs/04-phase-2-thinking.md`: 2차 사고 흐름
 - `docs/05-phase-3-thinking.md`: 3차 사고 흐름
 - `docs/06-phase-4-thinking.md`: 4차 사고 흐름
+- `docs/07-phase-5-thinking.md`: 5차 배포 사고 흐름
 
 ## 적립식예금 PDF 적재
 

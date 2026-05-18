@@ -33,6 +33,24 @@
 
 이 구조에서 Spring은 단순 프록시가 아니다. Spring은 REST API, 요청 검증, Python 호출, 질문 이력 저장, 피드백 저장, PDF 다운로드, 트랜잭션 관리, 예외 응답, 정적 프론트 제공을 맡는다. Python은 RAG 검색과 답변 생성을 맡는다. 이렇게 나눈 이유는 Spring MVC 학습과 AI 파이프라인 학습을 분리해서 보기 위해서다.
 
+## 배포 흐름
+
+외부 배포는 프론트와 API를 나누어 본다.
+
+```text
+사용자 브라우저
+  -> Vercel 정적 프론트
+  -> /api/* rewrite
+  -> Cloudflare Tunnel의 api.bnkaichat.xyz
+  -> 개인 Mac의 Spring Boot :8080
+  -> Python FastAPI :8000
+  -> MySQL
+```
+
+Vercel은 `index.html`, `style.css`, `app.js` 같은 정적 파일을 배포하기에 적합하다. 반면 Spring Boot와 Python RAG는 MySQL, 로컬 모델, PDF 원본 파일에 접근해야 하므로 현재 단계에서는 개인 Mac에서 실행한다. Cloudflare Tunnel은 외부에서 `api.bnkaichat.xyz`로 들어온 요청을 Mac의 `localhost:8080`으로 전달한다.
+
+이렇게 나눈 이유는 배포 비용과 복잡도를 낮추기 위해서다. Spring Boot, Python, MySQL, LLM 런타임을 모두 클라우드에 올리면 운영 학습 범위가 커진다. 현재 목표는 RAG와 Spring MVC 구조를 설명 가능한 상태로 만드는 것이므로, 프론트만 Vercel에 올리고 API는 Tunnel로 연결한다.
+
 ## 데이터 흐름
 
 원본 PDF와 처리 결과는 분리한다.
@@ -183,6 +201,8 @@ RAG 검색 안정화
 
 중요한 질문은 기술 이름이 아니다. 어떤 도메인부터 분리할지, 분리 직후 트랜잭션 경계는 어디인지, 문서 적재와 검색 인덱스 정합성은 누가 책임질지, 회귀 검증은 어느 시점에 돌릴지를 먼저 정해야 한다.
 
+배포 구조도 같은 관점에서 본다. 지금은 하나의 Mac 안에 Spring, Python, MySQL이 함께 있지만 외부 사용자 관점에서는 프론트와 API 경계가 이미 분리되어 있다. 다음 단계에서 실제 서버로 옮긴다면 우선 Spring API와 Python RAG API 사이의 계약을 고정하고, 그 뒤 MySQL과 PDF 저장소를 어디에 둘지 결정해야 한다.
+
 ## 용어 메모
 
 - RAG: Retrieval-Augmented Generation. 먼저 문서를 검색하고, 그 검색 결과를 근거로 답변하는 방식이다.
@@ -199,3 +219,7 @@ RAG 검색 안정화
 - 트랜잭션: 여러 DB 작업을 하나의 작업 단위로 묶어 성공 또는 실패를 함께 관리하는 방식이다.
 - MSA: Microservice Architecture. 기능이나 도메인을 작은 독립 서비스로 나누는 아키텍처 방식이다.
 - attachment: 브라우저가 파일을 화면에 열기보다 다운로드하도록 안내하는 HTTP 응답 방식이다.
+- Vercel: 정적 프론트엔드 배포에 쓰는 플랫폼이다.
+- Cloudflare Tunnel: 로컬 서버를 공개 도메인 뒤에 연결해 주는 터널링 방식이다.
+- rewrite: 브라우저 요청 경로를 배포 플랫폼이 다른 서버 주소로 전달하는 규칙이다.
+- API 경계: 한 서비스가 다른 서비스와 주고받는 요청, 응답, 오류 형식의 약속이다.
