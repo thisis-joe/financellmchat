@@ -421,6 +421,8 @@ curl -s -X POST https://api.bnkaichat.xyz/api/ask \
 
 브라우저에서는 Vercel에 연결한 프론트 도메인으로 접속한 뒤 챗봇에서 질문한다. 답변이 나오고 출처 카드의 `다운로드`가 PDF를 내려받으면 배포 흐름이 연결된 것이다.
 
+`bnkaichat.xyz` 커스텀 도메인과 HTTPS 적용은 `09-custom-domain-https.md`를 따른다. 현재 구조에서는 `bnkaichat.xyz`와 `www.bnkaichat.xyz`를 Vercel 프론트 도메인으로 쓰고, `api.bnkaichat.xyz`는 Cloudflare Tunnel API 도메인으로 유지한다.
+
 Vercel에서 404가 뜰 때 확인할 것:
 
 - Root Directory가 `src/main/resources/static`인지 확인한다.
@@ -448,3 +450,4 @@ Vercel에서 404가 뜰 때 확인할 것:
 - 배포 API: Vercel 화면이나 외부 사용자가 호출하게 될 공개 API 주소다. 현재는 Cloudflare Tunnel을 통해 로컬 Spring으로 연결된다.
 - Output Directory: Vercel이 실제로 정적 파일을 찾아 서빙하는 폴더다.
 - Root Directory: Vercel이 프로젝트 루트로 삼는 폴더다. repo 루트인지 정적 파일 폴더인지에 따라 Output Directory 설정이 달라진다.
+- 1016 Origin DNS Error: Cloudflare가 DNS 레코드의 원본 서버 이름을 해석하지 못할 때 나오는 오류다.

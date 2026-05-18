@@ -65,6 +65,7 @@ Vercel에서 404가 뜨면 프로젝트가 정적 파일 폴더를 output으로 
 - `docs/06-phase-4-thinking.md`: 4차 사고 흐름
 - `docs/07-phase-5-thinking.md`: 5차 배포 사고 흐름
 - `docs/08-phase-6-thinking.md`: 6차 답변 품질 사고 흐름
+- `docs/09-custom-domain-https.md`: `bnkaichat.xyz` 커스텀 도메인과 HTTPS 적용
 
 ## 적립식예금 PDF 적재
 

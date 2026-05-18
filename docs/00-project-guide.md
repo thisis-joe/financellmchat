@@ -32,6 +32,9 @@
 9. `08-phase-6-thinking.md`
    - 6차에서 왜 모든 질문을 RAG 검색으로 보내지 않고 질문 유형을 먼저 나누었는지 읽는다.
 
+10. `09-custom-domain-https.md`
+   - `bnkaichat.xyz` 커스텀 도메인과 HTTPS 연결 방법을 확인한다.
+
 ## 한 문단으로 이해하기
 
 이 프로젝트는 `BNK부산은행 상품공시 > 예금상품 > 적립식예금` PDF를 바탕으로 사용자의 질문에 답하는 RAG 학습 프로젝트다. 사용자가 브라우저 챗봇에 질문하면 Spring Boot가 `/api/ask` 요청을 받고, Python FastAPI RAG 서비스에 질문을 전달한다. Python은 MySQL에 저장된 PDF chunk를 검색하고, 검색된 근거를 Gemma 4 E4B 4bit MLX 모델 또는 문서기반 추출 답변으로 정리한다. Spring은 그 결과를 사용자에게 돌려주고 질문 이력과 피드백을 MySQL에 저장한다.
@@ -56,7 +59,7 @@
 - 프론트는 `index.html`, `style.css`, `app.js` 세 파일로 끝낸다.
 - 배포는 Vercel 정적 프론트와 Cloudflare Tunnel로 공개한 로컬 Spring API를 연결하는 방식으로 정리했다.
 - Vercel 기본 도메인 `https://financellmchat.vercel.app`은 정적 화면과 `/api/*` rewrite 동작을 확인했다.
-- 커스텀 도메인 `bnkaichat.xyz`와 `www.bnkaichat.xyz`는 Vercel/Cloudflare DNS 연결이 끝난 뒤 최종 확인한다.
+- 커스텀 도메인 `bnkaichat.xyz`와 `www.bnkaichat.xyz`는 Vercel 프론트 도메인으로 연결하고, `api.bnkaichat.xyz`는 Cloudflare Tunnel API 도메인으로 유지한다.
 
 ## 현재 아키텍처
 
@@ -166,6 +169,7 @@ PDF 적재:
 - Cloudflare Tunnel: 집이나 회사 PC의 로컬 서버를 포트포워딩 없이 외부 도메인에 안전하게 연결하는 방식이다.
 - rewrite: 브라우저가 호출한 경로를 배포 플랫폼이 다른 서버 주소로 전달하는 설정이다.
 - 커스텀 도메인: Vercel이 기본으로 주는 주소가 아니라 사용자가 구매한 도메인이다.
+- apex domain: `bnkaichat.xyz`처럼 앞에 `www`나 `api`가 붙지 않은 루트 도메인이다.
 - 질문 유형 분류: 사용자의 입력이 인사말, 목록 요청, 추천 요청, 문서 검색 요청 중 무엇인지 먼저 나누는 처리다.
 - 대화성 입력: 상품 문서 검색보다 인사, 감사, 종료, 도움말 안내에 가까운 짧은 채팅 표현이다.
 - 회귀 질문: 코드를 고친 뒤 이전에 잘 되던 답변이 계속 잘 되는지 확인하기 위해 정해 둔 대표 질문이다.
