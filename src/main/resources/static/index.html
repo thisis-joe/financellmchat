@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BNK부산은행 AI챗봇</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main aria-label="빈 메인 화면"></main>
+
+<button id="chatbot-button" class="chatbot-button" type="button" aria-label="채팅상담 열기">
+    <span class="mascot" aria-hidden="true">
+        <span class="mascot-ear left"></span>
+        <span class="mascot-ear right"></span>
+        <span class="mascot-face">
+            <span class="mascot-eye left"></span>
+            <span class="mascot-eye right"></span>
+            <span class="mascot-mouth"></span>
+        </span>
+        <span class="headset left"></span>
+        <span class="headset right"></span>
+    </span>
+</button>
+
+<section id="chatbot-panel" class="chatbot-panel" aria-label="채팅상담" hidden>
+    <header class="chatbot-header">
+        <div class="chatbot-title">
+            <span class="chat-icon" aria-hidden="true">...</span>
+            <span>채팅상담</span>
+        </div>
+        <button id="chatbot-close" class="chatbot-close" type="button" aria-label="채팅상담 닫기"></button>
+    </header>
+
+    <div class="chat-date" id="chat-date"></div>
+
+    <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
+
+    <form id="chat-form" class="chat-form">
+        <button class="chat-plus" type="button" aria-label="추가 메뉴">+</button>
+        <input id="chat-input" name="question" type="text" placeholder="궁금한 사항을 입력해 주세요" autocomplete="off" required>
+        <button class="chat-send" type="submit" aria-label="전송"></button>
+    </form>
+</section>
+
+<script src="/app.js"></script>
+</body>
+</html>

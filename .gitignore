@@ -1,0 +1,105 @@
+.gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### Logs ###
+*.log
+logs/
+
+### Local environment ###
+.env
+.env.*
+!.env.example
+application-local.yml
+application-local.yaml
+application-secret.yml
+application-secret.yaml
+
+### Python ###
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+env/
+rag-service/.venv-rag/
+rag-service/.venv-rag-py312/
+
+### RAG data and generated artifacts ###
+data/raw/**
+data/processed/**
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+*.pdf
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.safetensors
+*.gguf
+*.bin
+*.pt
+*.pth
+*.onnx
+*.parquet
+*.sqlite
+*.sqlite3
+*.db
+
+### Demo source documents ###
+!data/raw/busanbank/
+!data/raw/busanbank/product-disclosure/
+!data/raw/busanbank/product-disclosure/deposit/
+!data/raw/busanbank/product-disclosure/deposit/installment/
+!data/raw/busanbank/product-disclosure/deposit/installment/*.pdf
+!data/raw/busanbank/product-disclosure/deposit/installment/manifest.csv
+
+### Hugging Face / ML cache ###
+.cache/
+huggingface/
+models/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Vercel ###
+.vercel/
