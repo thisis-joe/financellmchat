@@ -13,7 +13,7 @@ export DYLD_LIBRARY_PATH=/opt/homebrew/opt/expat/lib
 RAG_RETRIEVAL_MODE=hybrid \
 RAG_GENERATION_MODE=mlx \
 MLX_GENERATION_MODEL=mlx-community/gemma-4-e4b-it-4bit \
-HF_MAX_NEW_TOKENS=180 \
+HF_MAX_NEW_TOKENS=260 \
 uvicorn app:app --reload --port 8000
 ```
 

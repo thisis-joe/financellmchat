@@ -106,7 +106,7 @@ export DYLD_LIBRARY_PATH=/opt/homebrew/opt/expat/lib
 RAG_RETRIEVAL_MODE=hybrid \
 RAG_GENERATION_MODE=mlx \
 MLX_GENERATION_MODEL=mlx-community/gemma-4-e4b-it-4bit \
-HF_MAX_NEW_TOKENS=180 \
+HF_MAX_NEW_TOKENS=260 \
 uvicorn app:app --reload --port 8000
 ```
 
@@ -172,7 +172,7 @@ curl -s http://localhost:8080/api/feedback
 
 ```bash
 screen -dmS finance-rag-spring bash -lc 'cd /Users/Joseph/workspaces/temp_RAG && java -jar build/libs/finance-rag-0.0.1-SNAPSHOT.jar > /tmp/finance-rag-spring.log 2>&1'
-screen -dmS finance-rag-python bash -lc 'cd /Users/Joseph/workspaces/temp_RAG/rag-service && export DYLD_LIBRARY_PATH=/opt/homebrew/opt/expat/lib && RAG_RETRIEVAL_MODE=hybrid RAG_GENERATION_MODE=mlx MLX_GENERATION_MODEL=mlx-community/gemma-4-e4b-it-4bit HF_MAX_NEW_TOKENS=180 .venv-rag-py312/bin/uvicorn app:app --port 8000 > /tmp/finance-rag-python.log 2>&1'
+screen -dmS finance-rag-python bash -lc 'cd /Users/Joseph/workspaces/temp_RAG/rag-service && export DYLD_LIBRARY_PATH=/opt/homebrew/opt/expat/lib && RAG_RETRIEVAL_MODE=hybrid RAG_GENERATION_MODE=mlx MLX_GENERATION_MODEL=mlx-community/gemma-4-e4b-it-4bit HF_MAX_NEW_TOKENS=260 .venv-rag-py312/bin/uvicorn app:app --port 8000 > /tmp/finance-rag-python.log 2>&1'
 ```
 
 확인:

@@ -53,6 +53,59 @@ class RagState(TypedDict):
     status: str
 
 
+SUPPORTED_CATEGORY = "예금상품>적립식예금"
+
+DEPOSIT_PRODUCT_CATEGORIES = [
+    "적립식예금",
+    "거치식예금",
+    "입출금자유예금",
+    "주택청약관련예금",
+    "외화예금",
+    "예금금리조회",
+]
+
+NON_RECOMMENDABLE_PRODUCT_KEYWORDS = ("약관", "ISA")
+YOUTH_OR_SPECIAL_PURPOSE_KEYWORDS = ("청년", "장병", "아기", "아이사랑", "주택드림", "기쁨두배")
+
+AGE_NEUTRAL_RECOMMENDATIONS = [
+    "BNK내맘대로 적금",
+    "Only One 주거래 우대적금",
+    "정기적금",
+    "가계우대정기적금",
+    "저탄소 실천 적금",
+    "펫 적금",
+]
+
+SENIOR_RECOMMENDATIONS = [
+    "백세청춘 실버적금",
+    "BNK내맘대로 적금",
+    "Only One 주거래 우대적금",
+    "정기적금",
+]
+
+YOUTH_RECOMMENDATIONS = [
+    "부산은행 청년도약계좌",
+    "청년 주택드림 청약통장",
+    "부산청년기쁨두배통장",
+]
+
+PURPOSE_PRODUCT_HINTS = {
+    "반려동물": ["펫 적금"],
+    "펫": ["펫 적금"],
+    "강아지": ["펫 적금"],
+    "고양이": ["펫 적금"],
+    "환경": ["저탄소 실천 적금"],
+    "저탄소": ["저탄소 실천 적금"],
+    "야구": ["BNK가을야구적금"],
+    "농구": ["BNK썸농구단 우승기원적금"],
+    "주거래": ["Only One 주거래 우대적금"],
+    "급여": ["Only One 주거래 우대적금"],
+    "군인": ["부산은행 장병내일준비적금"],
+    "장병": ["부산은행 장병내일준비적금"],
+    "청약": ["주택청약종합저축", "청년 주택드림 청약통장"],
+}
+
+
 PRODUCT_ALIAS_HINTS = {
     "청년도약계좌": "부산은행 청년도약계좌",
     "장병내일준비적금": "부산은행 장병내일준비적금",
@@ -111,17 +164,22 @@ def db_connection():
     )
 
 
-def load_documents(_: RagState) -> RagState:
+def fetch_documents() -> pd.DataFrame:
     sql = """
         select id, title, category, institution, product_name, product_type, source, source_url, content
         from financial_documents
         where institution = 'BNK부산은행'
+          and category = %s
         order by created_at desc
     """
     with db_connection() as connection:
         with connection.cursor() as cursor:
-            cursor.execute(sql)
-            documents = pd.DataFrame(cursor.fetchall())
+            cursor.execute(sql, (os.getenv("RAG_CATEGORY", SUPPORTED_CATEGORY),))
+            return pd.DataFrame(cursor.fetchall())
+
+
+def load_documents(_: RagState) -> RagState:
+    documents = fetch_documents()
     return {"documents": documents}
 
 
@@ -322,16 +380,18 @@ def build_search_corpus(documents: pd.DataFrame) -> List[str]:
     ).tolist()
 
 
-def analyze_question(question: str, documents: pd.DataFrame) -> Dict[str, List[str]]:
+def analyze_question(question: str, documents: pd.DataFrame) -> Dict[str, Any]:
     products = detect_products(question, documents)
     intents = detect_intents(question)
     keywords = extract_keywords(question)
+    age_info = detect_age_info(question)
     terms = build_focus_terms(question, products, intents, keywords)
     return {
         "products": products,
         "intents": intents,
         "keywords": keywords,
         "terms": terms,
+        "age": age_info,
     }
 
 
@@ -371,8 +431,11 @@ def detect_intents(question: str) -> List[str]:
 
 def extract_keywords(question: str) -> List[str]:
     keywords: List[str] = []
-    for token in re.split(r"\s+", question):
+    question_without_age = re.sub(r"(?:만\s*)?\d{1,3}\s*(?:대|세)", " ", question)
+    for token in re.split(r"\s+", question_without_age):
         keyword = re.sub(r"[^0-9A-Za-z가-힣]", "", token).strip()
+        if re.fullmatch(r"\d+", keyword):
+            continue
         if len(keyword) >= 2 and keyword not in keywords:
             keywords.append(keyword)
     return keywords
@@ -395,7 +458,7 @@ def build_focus_terms(question: str, products: List[str], intents: List[str], ke
     return sorted(terms, key=len, reverse=True)
 
 
-def rerank_score(row: pd.Series, base_score: float, focus: Dict[str, List[str]]) -> float:
+def rerank_score(row: pd.Series, base_score: float, focus: Dict[str, Any]) -> float:
     title = none_if_nan(row.get("title")) or ""
     product_name = none_if_nan(row.get("product_name")) or ""
     content = strip_import_metadata(none_if_nan(row.get("content")) or "")
@@ -407,6 +470,9 @@ def rerank_score(row: pd.Series, base_score: float, focus: Dict[str, List[str]])
         if normalize_key(product) in title_key:
             product_boost = 0.20
             break
+    product_mismatch_penalty = 0.0
+    if focus["products"] and product_name not in focus["products"]:
+        product_mismatch_penalty = 0.75
 
     intent_boost = 0.0
     for intent in focus["intents"]:
@@ -431,10 +497,12 @@ def rerank_score(row: pd.Series, base_score: float, focus: Dict[str, List[str]])
     score += min(intent_boost, 0.32)
     score += min(keyword_boost, 0.12)
     score += summary_section_boost(content_key, focus)
+    score -= age_product_penalty(product_name, title, focus)
+    score -= product_mismatch_penalty
     return score
 
 
-def summary_section_boost(content_key: str, focus: Dict[str, List[str]]) -> float:
+def summary_section_boost(content_key: str, focus: Dict[str, Any]) -> float:
     boost = 0.0
     has_summary_section = any(
         normalize_key(label) in content_key
@@ -457,6 +525,45 @@ def summary_section_boost(content_key: str, focus: Dict[str, List[str]]) -> floa
         boost += 0.10
 
     return boost
+
+
+def detect_age_info(question: str) -> Dict[str, Optional[int]]:
+    age_match = re.search(r"(?:만\s*)?(\d{1,3})\s*세", question)
+    if age_match:
+        age = int(age_match.group(1))
+        return {"age": age, "age_group": (age // 10) * 10}
+
+    age_group_match = re.search(r"(\d{2,3})\s*대", question)
+    if age_group_match:
+        age_group = int(age_group_match.group(1))
+        if age_group % 10 != 0:
+            age_group = (age_group // 10) * 10
+        return {"age": None, "age_group": age_group}
+
+    return {"age": None, "age_group": None}
+
+
+def age_floor(age_info: Dict[str, Optional[int]]) -> Optional[int]:
+    if age_info.get("age") is not None:
+        return int(age_info["age"])
+    if age_info.get("age_group") is not None:
+        return int(age_info["age_group"])
+    return None
+
+
+def age_product_penalty(product_name: str, title: str, focus: Dict[str, Any]) -> float:
+    floor = age_floor(focus.get("age", {}))
+    if floor is None or floor < 35:
+        return 0.0
+
+    product_text = f"{product_name} {title}"
+    explicit_products = " ".join(focus.get("products", []))
+    if product_name and product_name in explicit_products:
+        return 0.0
+
+    if any(keyword in product_text for keyword in YOUTH_OR_SPECIAL_PURPOSE_KEYWORDS):
+        return 0.65
+    return 0.0
 
 
 def strip_import_metadata(content: str) -> str:
@@ -529,6 +636,352 @@ def none_if_nan(value: Any) -> Optional[str]:
     if pd.isna(value):
         return None
     return str(value)
+
+
+def build_direct_response(question: str) -> Optional[AskResponse]:
+    question = question.strip()
+    if is_greeting_question(question):
+        return AskResponse(
+            question=question,
+            answer="안녕하세요! BNK부산은행 적립식예금 상품공시를 기준으로 궁금한 점을 도와드릴게요. 예금 종류, 상품 추천, 가입대상, 금리, 서류처럼 편하게 물어보세요.",
+            citations=[],
+            status="DIRECT",
+        )
+
+    if is_low_information_question(question):
+        return AskResponse(
+            question=question,
+            answer="질문을 조금만 더 구체적으로 입력해 주세요. 예를 들면 `예금 종류 알려줘`, `50대에게 맞는 적금 추천해줘`, `펫 적금 우대금리 조건 알려줘`처럼 물어볼 수 있습니다.",
+            citations=[],
+            status="DIRECT",
+        )
+
+    if is_deposit_catalog_question(question):
+        documents = fetch_documents()
+        return AskResponse(
+            question=question,
+            answer=build_deposit_catalog_answer(question, documents),
+            citations=[],
+            status="DIRECT",
+        )
+
+    if is_recommendation_question(question):
+        documents = fetch_documents()
+        answer, citations = build_recommendation_answer(question, documents)
+        return AskResponse(
+            question=question,
+            answer=answer,
+            citations=[Citation(**citation) for citation in citations],
+            status="RECOMMENDATION",
+        )
+
+    return None
+
+
+def is_greeting_question(question: str) -> bool:
+    compact = re.sub(r"\s+", "", question.lower())
+    return compact in {
+        "ㅎㅇ",
+        "ㅎㅇㅎㅇ",
+        "하이",
+        "안녕",
+        "안녕하세요",
+        "hi",
+        "hello",
+        "hey",
+    }
+
+
+def is_low_information_question(question: str) -> bool:
+    key = normalize_key(question)
+    return len(key) < 2
+
+
+def is_deposit_catalog_question(question: str) -> bool:
+    key = normalize_key(question)
+    if "예금" not in key:
+        return False
+    return any(keyword in key for keyword in ("종류", "분류", "목록", "상품군", "어떤예금", "뭐있"))
+
+
+def is_recommendation_question(question: str) -> bool:
+    key = normalize_key(question)
+    recommendation_terms = ("추천", "골라", "맞는", "어울리는", "뭐가좋", "무엇이좋", "상품좀", "가입하면좋")
+    return any(term in key for term in recommendation_terms)
+
+
+def build_deposit_catalog_answer(question: str, documents: pd.DataFrame) -> str:
+    products = product_names_from_documents(documents)
+    wants_full_list = any(keyword in normalize_key(question) for keyword in ("전체", "목록", "상품목록", "다보여"))
+    examples = products if wants_full_list else products[:10]
+
+    lines = [
+        "핵심 답변: 부산은행 상품공시 기준 예금상품은 크게 다음 종류로 나눠 볼 수 있습니다.",
+        "",
+        "예금상품 종류:",
+    ]
+    for category in DEPOSIT_PRODUCT_CATEGORIES:
+        lines.append(f"- {category}")
+
+    lines.extend(
+        [
+            "",
+            "현재 이 챗봇이 실제 PDF로 답변할 수 있는 범위는 `예금상품 > 적립식예금`입니다.",
+        ]
+    )
+
+    if examples:
+        lines.append("현재 적재된 적립식예금 상품 예시는 다음과 같습니다.")
+        for product in examples:
+            lines.append(f"- {product}")
+        if not wants_full_list and len(products) > len(examples):
+            lines.append(f"- 그 외 {len(products) - len(examples)}개 상품도 적립되어 있습니다. 전체 목록이 필요하면 `적립식예금 상품 목록`이라고 물어보세요.")
+
+    lines.append("")
+    lines.append("추가 확인 필요: 거치식예금, 입출금자유예금, 대출상품 등은 아직 PDF가 적재되지 않았으므로 현재 답변 범위에서 제외됩니다.")
+    return "\n".join(lines)
+
+
+def build_recommendation_answer(question: str, documents: pd.DataFrame) -> Tuple[str, List[Dict[str, Any]]]:
+    if documents.empty:
+        return "추천에 사용할 상품공시 문서가 아직 적재되어 있지 않습니다.", []
+
+    age_info = detect_age_info(question)
+    candidates = choose_recommendation_products(question, documents, age_info)
+    citations = build_recommendation_citations(documents, candidates)
+
+    if not candidates:
+        return (
+            "핵심 답변: 현재 질문만으로는 추천 기준을 정하기 어렵습니다.\n\n"
+            "확인하고 싶은 기준을 하나만 더 알려주세요.\n"
+            "- 나이대\n"
+            "- 목적: 목돈 마련, 주거래, 청약, 반려동물, 친환경, 급여 실적 등\n"
+            "- 선호: 자유적립식 또는 정액적립식\n\n"
+            "예: `50대에게 맞는 적금 추천해줘`, `반려동물 키우는데 혜택 있는 적금 추천해줘`",
+            [],
+        )
+
+    lines = [build_recommendation_lead(question, age_info), "", "추천 후보:"]
+    for index, product_name in enumerate(candidates, start=1):
+        lines.append(f"{index}. {product_name}")
+        lines.append(f"   - {recommendation_reason(product_name, age_info)}")
+
+    if is_age_mature(age_info):
+        lines.extend(
+            [
+                "",
+                "제외한 상품:",
+                "- 청년도약계좌, 청년 주택드림 청약통장, 장병내일준비적금처럼 청년/군복무/특정 연령 성격이 강한 상품은 50대 추천에서는 우선 제외했습니다.",
+            ]
+        )
+
+    source_titles = list(dict.fromkeys(citation["title"] for citation in citations))
+    if source_titles:
+        lines.append("")
+        lines.append(f"출처: {', '.join(source_titles[:3])}")
+
+    lines.append("")
+    lines.append("추가 확인 필요: 실제 가입 가능 여부와 우대금리는 가입 시점의 고시일, 나이, 거래실적, 은행 확인 결과에 따라 달라질 수 있습니다.")
+    return "\n".join(lines), citations
+
+
+def product_names_from_documents(documents: pd.DataFrame) -> List[str]:
+    if documents.empty or "product_name" not in documents:
+        return []
+
+    products = []
+    for product_name in documents["product_name"].dropna().astype(str).tolist():
+        if not product_name.strip():
+            continue
+        if any(keyword in product_name for keyword in ("약관",)):
+            continue
+        append_unique(products, product_name.strip())
+    return sorted(products)
+
+
+def choose_recommendation_products(
+    question: str,
+    documents: pd.DataFrame,
+    age_info: Dict[str, Optional[int]],
+) -> List[str]:
+    products = product_names_from_documents(documents)
+    if not products:
+        return []
+
+    available = set(products)
+    preferred_order = recommendation_preferred_order(question, age_info)
+    explicit_products = detect_products(question, documents)
+    question_key = normalize_key(question)
+
+    scored: List[Tuple[float, str]] = []
+    for product in products:
+        if any(keyword in product for keyword in NON_RECOMMENDABLE_PRODUCT_KEYWORDS):
+            continue
+        if product_is_age_incompatible(product, age_info, explicit_products):
+            continue
+
+        score = 0.0
+        if product in preferred_order:
+            score += max(0, 8 - preferred_order.index(product))
+        if product in explicit_products:
+            score += 10
+        for purpose, hinted_products in PURPOSE_PRODUCT_HINTS.items():
+            if normalize_key(purpose) in question_key and product in hinted_products:
+                score += 8
+        if product in AGE_NEUTRAL_RECOMMENDATIONS:
+            score += 1.5
+        if "청약" in question_key and "청약" in product:
+            score += 4
+        if score > 0:
+            scored.append((score, product))
+
+    scored.sort(key=lambda item: (-item[0], products.index(item[1])))
+    selected = [product for _, product in scored[:3] if product in available]
+    if selected:
+        return selected
+
+    fallback_order = [product for product in AGE_NEUTRAL_RECOMMENDATIONS if product in available]
+    return fallback_order[:3]
+
+
+def recommendation_preferred_order(question: str, age_info: Dict[str, Optional[int]]) -> List[str]:
+    key = normalize_key(question)
+    order: List[str] = []
+
+    for purpose, products in PURPOSE_PRODUCT_HINTS.items():
+        if normalize_key(purpose) in key:
+            for product in products:
+                append_unique(order, product)
+
+    floor = age_floor(age_info)
+    if floor is not None and floor < 40:
+        for product in YOUTH_RECOMMENDATIONS:
+            append_unique(order, product)
+    elif is_age_mature(age_info):
+        for product in SENIOR_RECOMMENDATIONS:
+            append_unique(order, product)
+
+    for product in AGE_NEUTRAL_RECOMMENDATIONS:
+        append_unique(order, product)
+    return order
+
+
+def product_is_age_incompatible(
+    product_name: str,
+    age_info: Dict[str, Optional[int]],
+    explicit_products: List[str],
+) -> bool:
+    if product_name in explicit_products:
+        return False
+
+    floor = age_floor(age_info)
+    if floor is None:
+        return False
+
+    if floor >= 35 and any(keyword in product_name for keyword in YOUTH_OR_SPECIAL_PURPOSE_KEYWORDS):
+        return True
+
+    exact_age = age_info.get("age")
+    if product_name == "백세청춘 실버적금" and exact_age is not None and exact_age < 56:
+        return True
+
+    return False
+
+
+def is_age_mature(age_info: Dict[str, Optional[int]]) -> bool:
+    floor = age_floor(age_info)
+    return floor is not None and floor >= 40
+
+
+def build_recommendation_lead(question: str, age_info: Dict[str, Optional[int]]) -> str:
+    if is_age_mature(age_info):
+        return "핵심 답변: 50대 이상이라면 청년 전용 상품보다 가입대상 제한이 없거나 중장년 조건에 맞는 적립식예금을 먼저 보는 것이 좋습니다."
+    if age_floor(age_info) is not None and age_floor(age_info) < 40:
+        return "핵심 답변: 청년층이라면 청년 전용 상품과 목적형 적금을 먼저 비교해 볼 수 있습니다."
+    return "핵심 답변: 추천은 나이, 목적, 거래실적에 따라 달라지므로 질문에서 확인되는 조건에 맞춰 후보를 골랐습니다."
+
+
+def recommendation_reason(product_name: str, age_info: Dict[str, Optional[int]]) -> str:
+    if product_name == "백세청춘 실버적금":
+        if age_info.get("age_group") == 50 and age_info.get("age") is None:
+            return "문서상 가입대상이 만 56세 이상이라 50대 중 만 56세 이상이면 우선 확인할 만합니다."
+        return "만 56세 이상 개인 대상 상품이라 중장년층 조건에 가장 직접적으로 맞습니다."
+    if product_name == "BNK내맘대로 적금":
+        return "목적을 넓게 잡기 좋은 자유적립식 성격의 후보입니다."
+    if product_name == "Only One 주거래 우대적금":
+        return "급여 입금이나 주거래 실적이 있다면 우대조건을 확인할 만합니다."
+    if product_name == "정기적금":
+        return "특정 연령 전용이 아닌 기본 적금 후보로 비교 기준으로 삼기 좋습니다."
+    if product_name == "가계우대정기적금":
+        return "일반 가계 저축 목적의 적금 후보로 볼 수 있습니다."
+    if product_name == "저탄소 실천 적금":
+        return "친환경 실천 조건에 관심이 있으면 우대조건을 확인할 만합니다."
+    if product_name == "펫 적금":
+        return "반려동물 관련 조건이나 혜택에 관심이 있을 때 검토할 만합니다."
+    if "청년" in product_name:
+        return "청년층 전용 성격이 강하므로 연령 조건을 먼저 확인해야 합니다."
+    if "장병" in product_name:
+        return "군 복무 대상 여부가 핵심 조건이므로 해당 여부를 먼저 확인해야 합니다."
+    return "질문 조건과 상품공시 내용이 일부 맞아 후보로 골랐습니다."
+
+
+def build_recommendation_citations(
+    documents: pd.DataFrame,
+    products: List[str],
+) -> List[Dict[str, Any]]:
+    citations: List[Dict[str, Any]] = []
+    seen_titles = set()
+    for index, product_name in enumerate(products, start=1):
+        row = select_product_overview_row(documents, product_name)
+        if row is None:
+            continue
+        raw_content = str(row["content"])
+        title = source_file_title(row, raw_content)
+        if title in seen_titles:
+            continue
+        content = strip_import_metadata(raw_content)
+        terms = [product_name, "가입대상", "상품특징", "우대이율", "기본이율"]
+        citations.append(
+            {
+                "documentId": int(row["id"]),
+                "title": title,
+                "category": str(row["category"]),
+                "institution": none_if_nan(row.get("institution")),
+                "productName": none_if_nan(row.get("product_name")),
+                "productType": none_if_nan(row.get("product_type")),
+                "source": str(row["source"]),
+                "sourceUrl": none_if_nan(row.get("source_url")),
+                "score": round(1.0 - (index * 0.05), 4),
+                "snippet": build_text_window(content, terms, max_chars=260),
+            }
+        )
+        seen_titles.add(title)
+    return citations
+
+
+def select_product_overview_row(documents: pd.DataFrame, product_name: str) -> Optional[pd.Series]:
+    rows = documents[documents["product_name"].fillna("").astype(str) == product_name]
+    if rows.empty:
+        return None
+
+    best_score = -1
+    best_row = None
+    for _, row in rows.iterrows():
+        content = strip_import_metadata(none_if_nan(row.get("content")) or "")
+        title = none_if_nan(row.get("title")) or ""
+        score = 0
+        if "p1" in title.lower():
+            score += 3
+        if "상품 개요" in content or "상품 개요 및 특징" in content:
+            score += 3
+        if "가입대상" in content:
+            score += 2
+        if "기본이율" in content or "우대이율" in content:
+            score += 1
+        if score > best_score:
+            best_score = score
+            best_row = row
+    return best_row
 
 
 def generate_answer(state: RagState) -> RagState:
@@ -731,8 +1184,8 @@ def build_messages(state: RagState) -> List[Dict[str, str]]:
         f"사용 가능한 출처 파일 제목: {source_titles}\n\n"
         "위 근거에서 질문과 직접 관련된 내용만 골라 답변하세요.\n"
         "문서 제목 목록만 반복하지 마세요.\n"
-        "구분선이나 장식 문자는 쓰지 말고, 같은 문장을 반복하지 마세요.\n"
-        "확인 내용은 문서 안의 조건, 서류, 수치, 예외를 질문 의도에 맞게 요약하세요.\n"
+        "구분선, 굵은 글씨, 근거 번호, 장식 문자는 쓰지 말고, 같은 문장을 반복하지 마세요.\n"
+        "확인 내용은 최대 3개 bullet로 쓰고, 문서 안의 조건, 서류, 수치, 예외를 질문 의도에 맞게 짧게 요약하세요.\n"
         "다음 형식으로 완성된 문장을 작성하세요.\n\n"
         "핵심 답변: ...\n"
         "확인 내용:\n"
@@ -758,9 +1211,10 @@ def build_mlx_prompt(state: RagState) -> str:
         f"질문:\n{state['question']}\n\n"
         f"검색 근거:\n{build_context_text(state)}\n\n"
         f"사용 가능한 출처 파일 제목:\n{source_titles}\n\n"
-        "아래 형식으로만 답하세요. 같은 내용을 반복하지 마세요.\n"
+        "아래 형식으로만 답하세요. 같은 내용을 반복하지 마세요. 굵은 글씨와 근거 번호는 쓰지 마세요.\n"
         "핵심 답변: 질문에 대한 직접 답변\n"
         "확인 내용:\n"
+        "- 문서 근거에서 뽑은 조건이나 내용\n"
         "- 문서 근거에서 뽑은 조건이나 내용\n"
         "- 문서 근거에서 뽑은 조건이나 내용\n"
         "출처: 파일 제목만 작성\n"
@@ -878,6 +1332,8 @@ def generate_hf_answer(state: RagState) -> str:
 
 def clean_generated_answer(text: str) -> str:
     answer = text.strip()
+    answer = answer.replace("**", "")
+    answer = re.sub(r"\s*\(근거\s*\d+\)", "", answer)
     while answer.startswith("-"):
         answer = answer.lstrip("-").strip()
     if answer.startswith("답변:"):
@@ -945,6 +1401,10 @@ def health():
 
 @app.post("/ask", response_model=AskResponse)
 def ask(request: AskRequest):
+    direct_response = build_direct_response(request.question)
+    if direct_response is not None:
+        return direct_response
+
     if compiled_graph is None:
         result = run_fallback_graph(request.question)
     else:
