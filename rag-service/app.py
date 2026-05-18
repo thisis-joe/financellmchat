@@ -106,6 +106,29 @@ PURPOSE_PRODUCT_HINTS = {
 }
 
 
+GUIDE_QUESTION_EXAMPLES = [
+    "예금 종류를 알려주세요",
+    "적립식예금 상품 목록을 알려주세요",
+    "50대인데 추천해주세요",
+    "펫 적금 혜택 받으려면 뭘 해야 해?",
+    "장병내일준비적금 만기 때 어떤 서류가 필요해?",
+]
+
+UNSUPPORTED_SCOPE_KEYWORDS = (
+    "대출",
+    "카드",
+    "외환",
+    "환전",
+    "송금",
+    "수수료",
+    "동백전",
+    "모락",
+    "사고신고",
+    "전자금융",
+    "수출입",
+)
+
+
 PRODUCT_ALIAS_HINTS = {
     "청년도약계좌": "부산은행 청년도약계좌",
     "장병내일준비적금": "부산은행 장병내일준비적금",
@@ -640,10 +663,11 @@ def none_if_nan(value: Any) -> Optional[str]:
 
 def build_direct_response(question: str) -> Optional[AskResponse]:
     question = question.strip()
-    if is_greeting_question(question):
+    conversation_answer = build_conversation_answer(question)
+    if conversation_answer is not None:
         return AskResponse(
             question=question,
-            answer="안녕하세요! BNK부산은행 적립식예금 상품공시를 기준으로 궁금한 점을 도와드릴게요. 예금 종류, 상품 추천, 가입대상, 금리, 서류처럼 편하게 물어보세요.",
+            answer=conversation_answer,
             citations=[],
             status="DIRECT",
         )
@@ -651,7 +675,7 @@ def build_direct_response(question: str) -> Optional[AskResponse]:
     if is_low_information_question(question):
         return AskResponse(
             question=question,
-            answer="질문을 조금만 더 구체적으로 입력해 주세요. 예를 들면 `예금 종류 알려줘`, `50대에게 맞는 적금 추천해줘`, `펫 적금 우대금리 조건 알려줘`처럼 물어볼 수 있습니다.",
+            answer=build_guidance_answer("질문을 조금만 더 구체적으로 입력해 주세요."),
             citations=[],
             status="DIRECT",
         )
@@ -678,23 +702,181 @@ def build_direct_response(question: str) -> Optional[AskResponse]:
     return None
 
 
+def build_conversation_answer(question: str) -> Optional[str]:
+    if is_help_question(question):
+        return build_guidance_answer("제가 잘 답할 수 있는 질문은 부산은행 적립식예금 상품공시를 근거로 찾는 질문입니다.")
+
+    if is_unsupported_scope_question(question):
+        return build_guidance_answer(
+            "아직 그 분야의 PDF 자료는 적재되어 있지 않습니다. 현재는 예금상품 > 적립식예금 자료만 근거로 답변할 수 있어요."
+        )
+
+    if has_searchable_finance_intent(question):
+        return None
+
+    if is_greeting_question(question):
+        return build_guidance_answer("안녕하세요! BNK부산은행 상품공시 AI챗봇입니다.")
+
+    if is_farewell_question(question):
+        return build_guidance_answer("네, 편하게 다시 찾아오세요. 다음에 궁금한 적립식예금 조건이 생기면 바로 찾아드릴게요.")
+
+    if is_thanks_question(question):
+        return build_guidance_answer("도움이 되었다면 다행입니다. 이어서 궁금한 상품 조건을 물어보셔도 좋아요.")
+
+    if is_casual_or_non_finance_question(question):
+        return build_guidance_answer("저는 일상 대화보다는 부산은행 상품공시 문서를 찾아 답하는 챗봇입니다.")
+
+    return None
+
+
+def build_guidance_answer(prefix: str) -> str:
+    lines = [
+        f"핵심 답변: {prefix}",
+        "",
+        "현재 검색 가능한 문서:",
+        "- 예금상품 > 적립식예금 PDF",
+        "",
+        "이렇게 물어보면 문서에서 찾아 답변할 수 있습니다:",
+    ]
+    lines.extend(f"- {example}" for example in GUIDE_QUESTION_EXAMPLES)
+    lines.append("")
+    lines.append("추가 확인 필요: 대출, 카드, 외환, 수수료 자료는 아직 적재하지 않았습니다.")
+    return "\n".join(lines)
+
+
+def conversation_key(question: str) -> str:
+    return re.sub(r"[\s~!?.。…,.]+", "", question.lower())
+
+
 def is_greeting_question(question: str) -> bool:
-    compact = re.sub(r"\s+", "", question.lower())
+    compact = conversation_key(question)
     return compact in {
         "ㅎㅇ",
         "ㅎㅇㅎㅇ",
+        "하이요",
         "하이",
+        "헬로",
         "안녕",
+        "안뇽",
         "안녕하세요",
+        "안녕하세요반가워요",
+        "반가워",
+        "방가",
         "hi",
         "hello",
         "hey",
     }
 
 
+def is_farewell_question(question: str) -> bool:
+    compact = conversation_key(question)
+    return compact in {
+        "ㅂ2",
+        "ㅂㅇ",
+        "바이",
+        "빠이",
+        "빠잉",
+        "잘가",
+        "잘가요",
+        "안녕히계세요",
+        "안녕히가세요",
+        "다음에봐",
+        "또봐",
+        "bye",
+        "goodbye",
+    }
+
+
+def is_thanks_question(question: str) -> bool:
+    compact = conversation_key(question)
+    if compact in {"ㅅㄱ", "ㄱㅅ", "감사", "고마워", "고마워요", "땡큐", "thanks", "thankyou"}:
+        return True
+    return any(keyword in compact for keyword in ("수고", "감사해", "고맙", "도움됐"))
+
+
 def is_low_information_question(question: str) -> bool:
     key = normalize_key(question)
     return len(key) < 2
+
+
+def is_help_question(question: str) -> bool:
+    key = normalize_key(question)
+    return any(
+        keyword in key
+        for keyword in (
+            "뭐물어",
+            "뭘물어",
+            "무엇을물어",
+            "질문예시",
+            "사용법",
+            "도움말",
+            "뭐할수",
+            "무엇을할수",
+            "어떻게물어",
+            "주요질문",
+        )
+    )
+
+
+def is_unsupported_scope_question(question: str) -> bool:
+    key = normalize_key(question)
+    if not any(normalize_key(keyword) in key for keyword in UNSUPPORTED_SCOPE_KEYWORDS):
+        return False
+
+    supported_markers = ("예금", "적금", "청약", "금리", "이율")
+    product_markers = tuple(normalize_key(alias) for alias in PRODUCT_ALIAS_HINTS)
+    return not any(marker in key for marker in supported_markers + product_markers)
+
+
+def has_searchable_finance_intent(question: str) -> bool:
+    key = normalize_key(question)
+    if not key:
+        return False
+
+    finance_markers = (
+        "예금",
+        "적금",
+        "청약",
+        "상품",
+        "가입",
+        "금리",
+        "이율",
+        "우대",
+        "해지",
+        "만기",
+        "서류",
+        "납입",
+        "비과세",
+        "소득공제",
+        "추천",
+        "목록",
+        "종류",
+    )
+    if any(marker in key for marker in finance_markers):
+        return True
+    return any(normalize_key(alias) in key for alias in PRODUCT_ALIAS_HINTS)
+
+
+def is_casual_or_non_finance_question(question: str) -> bool:
+    key = normalize_key(question)
+    compact = conversation_key(question)
+    if re.fullmatch(r"[ㅋㅎㅠㅜ]+", compact):
+        return True
+    return any(
+        keyword in key
+        for keyword in (
+            "뭐해",
+            "누구야",
+            "정체",
+            "심심",
+            "날씨",
+            "점심",
+            "저녁",
+            "밥먹",
+            "기분",
+            "재밌",
+        )
+    )
 
 
 def is_deposit_catalog_question(question: str) -> bool:

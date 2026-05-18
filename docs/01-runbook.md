@@ -191,6 +191,14 @@ python3 scripts/check_representative_questions.py \
   --timeout 90
 ```
 
+Vercel 프론트의 `/api/*` rewrite까지 함께 확인하려면:
+
+```bash
+python3 scripts/check_representative_questions.py \
+  --base-url https://financellmchat.vercel.app \
+  --timeout 90
+```
+
 이 스크립트가 성공하면 인사말, 예금 종류, 추천, 주요 상품 질문의 기본 동작이 유지된 것이다.
 
 출처 PDF 다운로드 확인:
@@ -420,6 +428,7 @@ Vercel에서 404가 뜰 때 확인할 것:
 - Build Command는 비우거나 `null`로 둔다.
 - Output Directory는 repo 루트 기준 `src/main/resources/static`, 정적 폴더 Root Directory 기준 `.`로 둔다.
 - 설정 변경 뒤에는 반드시 새 배포를 실행한다.
+- 기본 도메인 `https://financellmchat.vercel.app`에서 먼저 200 응답과 대표 질문 10개 통과를 확인한 뒤 커스텀 도메인을 연결한다.
 
 ## 용어 메모
 
@@ -438,3 +447,4 @@ Vercel에서 404가 뜰 때 확인할 것:
 - 기대 방향: 답변이 반드시 글자 그대로 같을 필요는 없지만 지켜야 하는 의미와 조건이다.
 - 배포 API: Vercel 화면이나 외부 사용자가 호출하게 될 공개 API 주소다. 현재는 Cloudflare Tunnel을 통해 로컬 Spring으로 연결된다.
 - Output Directory: Vercel이 실제로 정적 파일을 찾아 서빙하는 폴더다.
+- Root Directory: Vercel이 프로젝트 루트로 삼는 폴더다. repo 루트인지 정적 파일 폴더인지에 따라 Output Directory 설정이 달라진다.

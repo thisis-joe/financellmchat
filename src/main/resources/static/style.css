@@ -437,6 +437,61 @@ button {
     cursor: default;
 }
 
+.question-list-bubble {
+    width: min(100%, 280px);
+}
+
+.question-list-intro p {
+    margin: 0 0 6px;
+}
+
+.question-list-intro p:last-child {
+    margin-bottom: 10px;
+    color: #676b74;
+}
+
+.question-list {
+    display: grid;
+    gap: 7px;
+}
+
+.question-list-button {
+    width: 100%;
+    min-height: 42px;
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 8px;
+    align-items: center;
+    border: 1px solid #ececec;
+    border-radius: 10px;
+    background: #fff;
+    color: #30333b;
+    padding: 8px 10px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.32;
+    word-break: keep-all;
+}
+
+.question-list-button:hover,
+.question-list-button:focus {
+    border-color: #ffb2b5;
+    background: #fff8f8;
+}
+
+.question-list-button span {
+    width: 22px;
+    height: 22px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 50%;
+    background: #ff4a4f;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+}
+
 .citation-list {
     margin-top: 12px;
     display: grid;

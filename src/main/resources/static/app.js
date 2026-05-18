@@ -17,6 +17,19 @@ const quickQuestions = {
     "주요질문": "적립식예금 상품에서 중도해지와 우대이율은 무엇을 봐야 하나요?"
 };
 
+const representativeQuestions = [
+    "예금 종류를 알려주세요",
+    "적립식예금 상품 목록을 알려주세요",
+    "50대인데 추천해주세요",
+    "만 50세인데 추천해주세요",
+    "펫 적금 혜택 받으려면 뭘 해야 해?",
+    "장병내일준비적금 만기 때 어떤 서류가 필요해?",
+    "청년도약계좌 가입대상 알려줘",
+    "주택청약종합저축 가입자격 알려줘",
+    "BNK내맘대로 적금 우대이율 조건은?",
+    "정기적금 가입기간과 이율은?"
+];
+
 function todayText() {
     const date = new Date();
     const year = date.getFullYear();
@@ -161,6 +174,34 @@ function renderFeedbackActions(historyId) {
     `;
 }
 
+function showRepresentativeQuestions() {
+    appendUser("주요질문");
+    const html = `
+        <div class="question-list-intro">
+            <p><strong>자주 확인하는 질문 10개입니다.</strong></p>
+            <p>궁금한 항목을 누르면 바로 질문할 수 있어요.</p>
+        </div>
+        <div class="question-list">
+            ${representativeQuestions.map((question, index) => `
+                <button class="question-list-button" type="button" data-index="${index}">
+                    <span>${index + 1}</span>
+                    ${escapeHtml(question)}
+                </button>
+            `).join("")}
+        </div>
+    `;
+    const row = appendBot(html, "question-list-bubble");
+    row.querySelectorAll(".question-list-button").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const question = representativeQuestions[Number(button.dataset.index)];
+            if (!question) {
+                return;
+            }
+            await ask(question);
+        });
+    });
+}
+
 async function submitFeedback(historyId, rating, statusElement) {
     await requestJson(`/api/histories/${historyId}/feedback`, {
         method: "POST",
@@ -189,6 +230,10 @@ function welcome() {
 
     quickGrid.querySelectorAll(".quick-button:not([disabled])").forEach((button) => {
         button.addEventListener("click", () => {
+            if (button.dataset.label === "주요질문") {
+                showRepresentativeQuestions();
+                return;
+            }
             input.value = quickQuestions[button.dataset.label];
             input.focus();
         });
