@@ -20,6 +20,9 @@
 5. `04-lora-qlora-dataset.md`
    - LoRA/QLoRA를 언제, 어디서, 왜 쓰고 어떤 데이터셋으로 학습할지 본다.
 
+6. `05-interview-qa.md`
+   - 면접에서 나올 수 있는 Spring, DB, RAG, AI, LoRA/QLoRA 질문과 답변을 본다.
+
 ## 프로젝트 한 문단 요약
 
 이 프로젝트는 `BNK부산은행 상품공시 > 예금상품 > 적립식예금` PDF를 바탕으로 질문에 답하는 RAG 챗봇이다. 사용자가 웹 챗봇에 질문하면 Spring Boot가 `/api/ask`를 받고, Python FastAPI RAG 서비스가 MySQL에 저장된 PDF chunk를 검색한다. 검색된 근거를 바탕으로 로컬 Gemma 모델 또는 문서기반 fallback이 답변을 만들고, Spring은 질문 이력, 검색 근거, 피드백을 저장한다. 화면은 단일 HTML/CSS/JS 프론트로 유지하고, 근거와 PDF 다운로드는 작은 `답변근거` 버튼으로 확인한다.
