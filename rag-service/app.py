@@ -164,6 +164,7 @@ PRODUCT_ALIAS_HINTS = {
 
 
 INTENT_KEYWORDS = {
+    "상품설명": ["설명", "알려줘", "알려", "내용", "정리", "뭐야", "무슨상품", "어떤상품"],
     "가입대상": ["가입", "가입대상", "가입 대상", "가입자격", "가입조건", "가입 조건", "대상", "자격", "요건", "누가"],
     "금리": ["금리", "이율", "이자율", "우대금리", "우대 금리", "우대이율", "최고금리", "기본금리", "기본이율", "혜택"],
     "가입기간": ["가입기간", "가입 기간", "계약기간", "계약 기간", "기간", "만기"],
@@ -176,6 +177,7 @@ INTENT_KEYWORDS = {
 
 
 STRONG_INTENT_KEYWORDS = {
+    "상품설명": ["상품 개요", "상품개요", "상품특징", "특징", "거래 조건", "거래조건", "가입대상"],
     "가입대상": ["가입대상", "가입 대상", "가입자격", "가입조건", "가입 조건"],
     "금리": ["우대금리", "우대 금리", "우대이율", "최고금리", "기본금리", "기본이율", "이자율"],
     "가입기간": ["가입기간", "가입 기간", "계약기간", "계약 기간"],
@@ -858,19 +860,22 @@ def build_conversation_answer(question: str) -> Optional[str]:
         return None
 
     if is_greeting_question(question):
-        return build_guidance_answer("안녕하세요! BNK부산은행 상품공시 AI챗봇입니다.")
+        return build_guidance_answer("안녕하세요! 궁금한 적립식예금 상품을 같이 찾아볼게요.")
 
     if is_farewell_question(question):
-        return build_guidance_answer("네, 편하게 다시 찾아오세요. 다음에 궁금한 적립식예금 조건이 생기면 바로 찾아드릴게요.")
+        return build_brief_conversation_answer("네, 편하게 다시 찾아오세요. 다음에 궁금한 적립식예금 조건이 생기면 바로 찾아드릴게요.")
 
     if is_thanks_question(question):
-        return build_guidance_answer("도움이 되었다면 다행입니다. 이어서 궁금한 상품 조건을 물어보셔도 좋아요.")
+        return build_brief_conversation_answer("도움이 되었다면 다행입니다. 이어서 궁금한 상품 조건을 물어보셔도 좋아요.")
+
+    if is_low_information_question(question):
+        return build_guidance_answer("질문을 조금만 더 구체적으로 입력해 주세요.")
 
     if is_casual_or_non_finance_question(question):
-        return build_guidance_answer("저는 일상 대화보다는 부산은행 상품공시 문서를 찾아 답하는 챗봇입니다.")
+        return build_brief_conversation_answer("말 걸어주셔서 좋아요. 저는 부산은행 상품공시를 찾아 답하는 챗봇이라, 적립식예금 쪽 질문이면 더 정확히 도와드릴 수 있어요.")
 
     if not has_age_info(detect_age_info(question)) and not is_military_context_question(question):
-        return build_guidance_answer("말씀은 이해했어요. 다만 지금 제가 정확히 확인할 수 있는 범위는 부산은행 적립식예금 상품공시입니다.")
+        return build_guidance_answer("말씀은 이해했어요. 지금 제가 정확히 확인할 수 있는 범위는 부산은행 적립식예금 상품공시라서, 상품명이나 조건을 함께 말해주면 바로 찾아드릴게요.")
 
     return None
 
@@ -888,6 +893,14 @@ def build_guidance_answer(prefix: str) -> str:
     lines.append("")
     lines.append("대출, 카드, 외환, 수수료 자료는 아직 넣지 않았어요.")
     return "\n".join(lines)
+
+
+def build_brief_conversation_answer(prefix: str) -> str:
+    return (
+        f"{prefix}\n\n"
+        "지금은 예금상품 > 적립식예금 PDF를 기준으로 답할 수 있습니다. "
+        "`펫 적금 설명해줘`, `50대에게 맞는 적금 추천해줘`처럼 물어보면 바로 찾아드릴게요."
+    )
 
 
 def conversation_key(question: str) -> str:
@@ -1496,18 +1509,44 @@ def finalize_generated_answer(answer: str, state: RagState) -> str:
         line = strip_visible_answer_label(line)
         if line is None:
             continue
-        normalized_lines.append(line)
+        normalized_lines.append(normalize_answer_line(line))
 
     normalized = "\n".join(normalized_lines).strip()
+    normalized = remove_incomplete_tail(normalized)
     caveat = "실제 적용 여부는 가입 시점의 고시일, 개인 조건, 은행 확인 결과에 따라 달라질 수 있습니다."
     if caveat not in normalized and "가입 시점" not in normalized:
         normalized += f"\n\n{caveat}"
     return normalized
 
 
+def normalize_answer_line(line: str) -> str:
+    line = re.sub(r"^\*\s+", "- ", line)
+    line = re.sub(r"^[-*]\s{2,}", "- ", line)
+    return line
+
+
+def remove_incomplete_tail(answer: str) -> str:
+    lines = answer.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    if not lines:
+        return answer
+
+    tail = lines[-1].strip()
+    incomplete_endings = ("하시면", "하시면 됩니다만", "통해", "통해서", "문의하시면", "확인하시면")
+    if tail.endswith(incomplete_endings):
+        lines.pop()
+        while lines and not lines[-1].strip():
+            lines.pop()
+    return "\n".join(lines).strip()
+
+
 def build_answer_lead(products: List[str], intents: List[str], question: str) -> str:
     product_text = ", ".join(products[:2]) if products else "검색된 상품"
     question_key = normalize_key(question)
+    if "상품설명" in intents:
+        return f"좋아요. {product_text}에 대해 상품공시에서 확인되는 내용을 먼저 쉽게 정리해 드릴게요."
     if "가입대상" in intents:
         return f"{product_text}은 문서에 나온 가입자격과 제한 조건을 먼저 확인해야 합니다."
     if "금리" in intents:
@@ -1582,7 +1621,11 @@ def answer_focus_terms(question: str, intents: List[str]) -> List[str]:
 
 def split_fact_candidates(content: str) -> List[str]:
     marked = re.sub(r"(▣|ㅇ|※|☞|①|②|③|④|⑤|[•·])", r"\n\1", content)
-    marked = re.sub(r"\s+(구 분|내 용|가입대상|가입자격|우대이율|우대금리|기본이율|신청서류|만기해지)", r"\n\1", marked)
+    marked = re.sub(
+        r"\s+(구 분|내 용|기본정보|상품 개요 및 특징|상품개요|상품특징|거래 조건|거래조건|가입대상|가입자격|우대이율|우대금리|기본이율|신청서류|만기해지)",
+        r"\n\1",
+        marked,
+    )
     candidates = []
     for line in marked.splitlines():
         line = compact_text(line)
@@ -1594,6 +1637,11 @@ def split_fact_candidates(content: str) -> List[str]:
 def is_relevant_segment(segment: str, terms: List[str], intents: List[str]) -> bool:
     segment_key = normalize_key(segment)
     if any(normalize_key(term) in segment_key for term in terms if len(normalize_key(term)) >= 2):
+        return True
+    if "상품설명" in intents and any(
+        normalize_key(word) in segment_key
+        for word in ("상품 개요", "상품개요", "상품특징", "특징", "가입대상", "거래조건", "가입금액", "가입기간")
+    ):
         return True
     if "금리" in intents and re.search(r"\d+(?:\.\d+)?\s*%p?", segment):
         return True
