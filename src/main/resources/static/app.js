@@ -96,13 +96,20 @@ function escapeHtml(value) {
 }
 
 function formatAnswerLine(line) {
-    const labels = ["핵심 답변:", "확인 내용:", "출처:", "추가 확인 필요:"];
-    for (const label of labels) {
+    const hiddenLabels = ["출처:", "근거 문서:", "사용 가능한 출처 파일 제목:"];
+    for (const label of hiddenLabels) {
         if (line.startsWith(label)) {
-            const value = line.slice(label.length).trim();
-            return `<strong>${escapeHtml(label)}</strong>${value ? ` ${escapeHtml(value)}` : ""}`;
+            return "";
         }
     }
+
+    const removableLabels = ["핵심 답변:", "확인 내용:", "추가 확인 필요:", "답변:"];
+    for (const label of removableLabels) {
+        if (line.startsWith(label)) {
+            return escapeHtml(line.slice(label.length).trim());
+        }
+    }
+
     return escapeHtml(line);
 }
 
@@ -128,7 +135,10 @@ function renderAnswer(answer) {
             html += "</ul>";
             inList = false;
         }
-        html += `<p>${formatAnswerLine(line)}</p>`;
+        const formattedLine = formatAnswerLine(line);
+        if (formattedLine) {
+            html += `<p>${formattedLine}</p>`;
+        }
     }
 
     if (inList) {
@@ -210,8 +220,8 @@ function renderFeedbackActions(historyId) {
     `;
 }
 
-function renderEvidenceAction(historyId) {
-    if (!historyId) {
+function renderEvidenceAction(historyId, citations = []) {
+    if (!historyId || !citations || citations.length === 0) {
         return "";
     }
     return `
@@ -232,7 +242,7 @@ function renderEvidencePanel(evidence) {
             ? `/api/documents/${encodeURIComponent(item.documentId)}/download`
             : "";
         const link = downloadUrl
-            ? `<a href="${escapeHtml(downloadUrl)}" download>PDF</a>`
+            ? `<a href="${escapeHtml(downloadUrl)}" download>다운로드</a>`
             : "";
         return `
             <li>
@@ -355,8 +365,7 @@ async function ask(question) {
         });
         loading.querySelector(".bot-bubble").innerHTML = `
             ${renderAnswer(result.answer)}
-            ${renderCitations(result.citations)}
-            ${renderEvidenceAction(result.historyId)}
+            ${renderEvidenceAction(result.historyId, result.citations)}
             ${renderFeedbackActions(result.historyId)}
         `;
         loading.querySelectorAll(".evidence-actions").forEach((actions) => {

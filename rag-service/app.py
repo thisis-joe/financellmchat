@@ -97,6 +97,14 @@ YOUTH_RECOMMENDATIONS = [
     "부산청년기쁨두배통장",
 ]
 
+SENIOR_CONTEXT_RECOMMENDATIONS = [
+    "백세청춘 실버적금",
+    "BNK내맘대로 적금",
+    "정기적금",
+]
+
+MILITARY_MARKERS = ("군인", "장병", "군복무", "복무", "입대", "전역", "현역", "병사")
+
 PURPOSE_PRODUCT_HINTS = {
     "반려동물": ["펫 적금"],
     "펫": ["펫 적금"],
@@ -592,6 +600,10 @@ def age_range(age_info: Dict[str, Optional[int]]) -> Tuple[Optional[int], Option
     return None, None, False
 
 
+def has_age_info(age_info: Dict[str, Optional[int]]) -> bool:
+    return age_info.get("age") is not None or age_info.get("age_group") is not None
+
+
 def age_product_penalty(product_name: str, title: str, focus: Dict[str, Any]) -> float:
     floor = age_floor(focus.get("age", {}))
     if floor is None or floor < 35:
@@ -690,6 +702,10 @@ def build_direct_response(question: str) -> Optional[AskResponse]:
             status="DIRECT",
         )
 
+    situation_response = build_situation_response(question)
+    if situation_response is not None:
+        return situation_response
+
     if is_low_information_question(question):
         return AskResponse(
             question=question,
@@ -720,6 +736,115 @@ def build_direct_response(question: str) -> Optional[AskResponse]:
     return None
 
 
+def build_situation_response(question: str) -> Optional[AskResponse]:
+    age_info = detect_age_info(question)
+    key = normalize_key(question)
+    documents: Optional[pd.DataFrame] = None
+
+    if is_child_context(age_info):
+        return AskResponse(
+            question=question,
+            answer=build_child_context_answer(age_info),
+            citations=[],
+            status="DIRECT",
+        )
+
+    if is_military_context_question(question):
+        documents = fetch_documents()
+        product_names = ["부산은행 장병내일준비적금"]
+        citations = build_recommendation_citations(documents, product_names)
+        return AskResponse(
+            question=question,
+            answer=build_military_context_answer(),
+            citations=[Citation(**citation) for citation in citations],
+            status="RECOMMENDATION",
+        )
+
+    if is_senior_context(age_info) and not is_recommendation_question(question):
+        documents = fetch_documents()
+        candidates, _ = choose_recommendation_products_for_order(documents, SENIOR_CONTEXT_RECOMMENDATIONS, age_info)
+        citations = build_recommendation_citations(documents, candidates)
+        return AskResponse(
+            question=question,
+            answer=build_senior_context_answer(candidates),
+            citations=[Citation(**citation) for citation in citations],
+            status="RECOMMENDATION",
+        )
+
+    if has_age_info(age_info) and not is_recommendation_question(question) and not any(marker in key for marker in ("가입", "금리", "이율", "서류", "해지", "납입")):
+        return AskResponse(
+            question=question,
+            answer=build_age_context_answer(age_info),
+            citations=[],
+            status="DIRECT",
+        )
+
+    return None
+
+
+def is_child_context(age_info: Dict[str, Optional[int]]) -> bool:
+    return age_info.get("age") is not None and int(age_info["age"]) < 14
+
+
+def is_senior_context(age_info: Dict[str, Optional[int]]) -> bool:
+    floor = age_floor(age_info)
+    return floor is not None and floor >= 65
+
+
+def is_military_context_question(question: str) -> bool:
+    key = normalize_key(question)
+    if not any(marker in key for marker in MILITARY_MARKERS):
+        return False
+    if detect_intents(question):
+        return False
+    return not any(normalize_key(alias) in key for alias in PRODUCT_ALIAS_HINTS)
+
+
+def build_child_context_answer(age_info: Dict[str, Optional[int]]) -> str:
+    age = age_info.get("age")
+    prefix = f"{age}세라면 아직 어린이" if age is not None else "어린이라면"
+    return (
+        f"{prefix}라서 본인이 직접 예금 상품 가입을 진행하기는 어렵습니다.\n\n"
+        "아이 명의로 저축을 준비하려는 상황이라면 보호자와 함께 가입 가능 여부와 필요 서류를 확인하는 게 먼저예요. "
+        "지금 조건에서는 특정 상품을 바로 추천하기보다 보호자 동반 확인이 더 안전합니다."
+    )
+
+
+def build_military_context_answer() -> str:
+    return (
+        "부산은행은 국군장병을 응원합니다.\n\n"
+        "군 복무 중이라면 먼저 볼 상품은 부산은행 장병내일준비적금입니다. "
+        "군 복무자를 위한 적금 성격이 가장 직접적이고, 가입자격이나 제출서류, 만기 수령 조건은 복무 구분에 따라 달라질 수 있어요."
+    )
+
+
+def build_senior_context_answer(candidates: List[str]) -> str:
+    if candidates:
+        products = ", ".join(candidates[:3])
+        return (
+            "건강하고 편안한 금융생활을 응원합니다.\n\n"
+            f"연령 조건만 놓고 보면 청년 전용 상품보다는 {products}부터 확인해 보는 편이 자연스럽습니다. "
+            "특히 백세청춘 실버적금은 고령층 조건과 직접 맞닿아 있어요. "
+            "다만 실제 가입 가능 여부와 우대금리는 가입 시점과 개인 조건에 따라 확인이 필요합니다."
+        )
+    return (
+        "건강하고 편안한 금융생활을 응원합니다.\n\n"
+        "지금 자료만으로는 연령 조건에 맞는 상품을 충분히 고르지 못했습니다. "
+        "원하시면 `90세에게 맞는 적금 추천해줘`처럼 다시 물어봐 주세요."
+    )
+
+
+def build_age_context_answer(age_info: Dict[str, Optional[int]]) -> str:
+    floor = age_floor(age_info)
+    if floor is None:
+        return "나이를 알려주셨네요. 가입 가능 여부는 상품마다 달라서, 추천을 원하면 `추천해줘`라고 이어서 물어봐 주세요."
+    if floor < 19:
+        return "만 19세 미만이면 청년 전용 상품 중에도 가입이 안 되는 경우가 있어요. 보호자 동반 여부와 상품별 가입대상을 먼저 확인하는 게 좋습니다."
+    if floor >= 40:
+        return "연령 조건을 고려해서 볼 수 있는 적금이 몇 가지 있습니다. 추천을 원하면 `추천해줘`라고 이어서 물어봐 주세요."
+    return "청년층이라면 청년 전용 상품과 일반 적금을 함께 비교해 볼 수 있어요. 원하면 조건에 맞는 후보를 골라드릴게요."
+
+
 def build_conversation_answer(question: str) -> Optional[str]:
     if is_help_question(question):
         return build_guidance_answer("제가 잘 답할 수 있는 질문은 부산은행 적립식예금 상품공시를 근거로 찾는 질문입니다.")
@@ -744,21 +869,24 @@ def build_conversation_answer(question: str) -> Optional[str]:
     if is_casual_or_non_finance_question(question):
         return build_guidance_answer("저는 일상 대화보다는 부산은행 상품공시 문서를 찾아 답하는 챗봇입니다.")
 
+    if not has_age_info(detect_age_info(question)) and not is_military_context_question(question):
+        return build_guidance_answer("말씀은 이해했어요. 다만 지금 제가 정확히 확인할 수 있는 범위는 부산은행 적립식예금 상품공시입니다.")
+
     return None
 
 
 def build_guidance_answer(prefix: str) -> str:
     lines = [
-        f"핵심 답변: {prefix}",
+        prefix,
         "",
-        "현재 검색 가능한 문서:",
+        "현재는 아래 자료를 기준으로 답할 수 있어요.",
         "- 예금상품 > 적립식예금 PDF",
         "",
-        "이렇게 물어보면 문서에서 찾아 답변할 수 있습니다:",
+        "이런 식으로 물어보면 좋아요.",
     ]
     lines.extend(f"- {example}" for example in GUIDE_QUESTION_EXAMPLES)
     lines.append("")
-    lines.append("추가 확인 필요: 대출, 카드, 외환, 수수료 자료는 아직 적재하지 않았습니다.")
+    lines.append("대출, 카드, 외환, 수수료 자료는 아직 넣지 않았어요.")
     return "\n".join(lines)
 
 
@@ -916,9 +1044,8 @@ def build_deposit_catalog_answer(question: str, documents: pd.DataFrame) -> str:
     examples = products if wants_full_list else products[:10]
 
     lines = [
-        "핵심 답변: 부산은행 상품공시 기준 예금상품은 크게 다음 종류로 나눠 볼 수 있습니다.",
+        "부산은행 상품공시 기준으로 예금상품은 크게 이렇게 나뉩니다.",
         "",
-        "예금상품 종류:",
     ]
     for category in DEPOSIT_PRODUCT_CATEGORIES:
         lines.append(f"- {category}")
@@ -926,7 +1053,7 @@ def build_deposit_catalog_answer(question: str, documents: pd.DataFrame) -> str:
     lines.extend(
         [
             "",
-            "현재 이 챗봇이 실제 PDF로 답변할 수 있는 범위는 `예금상품 > 적립식예금`입니다.",
+            "지금 제가 실제 PDF로 확인할 수 있는 범위는 `예금상품 > 적립식예금`입니다.",
         ]
     )
 
@@ -938,7 +1065,7 @@ def build_deposit_catalog_answer(question: str, documents: pd.DataFrame) -> str:
             lines.append(f"- 그 외 {len(products) - len(examples)}개 상품도 적립되어 있습니다. 전체 목록이 필요하면 `적립식예금 상품 목록`이라고 물어보세요.")
 
     lines.append("")
-    lines.append("추가 확인 필요: 거치식예금, 입출금자유예금, 대출상품 등은 아직 PDF가 적재되지 않았으므로 현재 답변 범위에서 제외됩니다.")
+    lines.append("거치식예금, 입출금자유예금, 대출상품 자료는 아직 넣지 않았어요.")
     return "\n".join(lines)
 
 
@@ -995,20 +1122,20 @@ def product_age_incompatibility_reason(
 
     if min_age is not None and start_age < min_age:
         if is_exact_age:
-            return f"PDF 가입대상에 만 {min_age}세 이상 조건이 있어 현재 나이와 맞지 않습니다."
-        return f"PDF 가입대상에 만 {min_age}세 이상 조건이 있어 입력한 나이대 전체에 안전하게 맞는 상품으로 보기 어렵습니다."
+            return f"가입대상이 만 {min_age}세 이상이라 현재 나이와 맞지 않아요."
+        return f"가입대상이 만 {min_age}세 이상이라 입력한 나이대 전체에 안전하게 맞는 상품으로 보기 어렵습니다."
 
     if max_age is not None and end_age > max_age:
         if is_exact_age:
-            return f"PDF 가입대상에 만 {max_age}세 이하 조건이 있어 현재 나이와 맞지 않습니다."
-        return f"PDF 가입대상에 만 {max_age}세 이하 조건이 있어 입력한 나이대 전체에 안전하게 맞는 상품으로 보기 어렵습니다."
+            return f"가입대상이 만 {max_age}세 이하라 현재 나이와 맞지 않아요."
+        return f"가입대상이 만 {max_age}세 이하라 입력한 나이대 전체에 안전하게 맞는 상품으로 보기 어렵습니다."
 
     if min_age is None and max_age is None:
         floor = age_floor(age_info)
         if floor is not None and floor >= 35 and any(keyword in product_name for keyword in YOUTH_OR_SPECIAL_PURPOSE_KEYWORDS):
-            return "PDF에서 명확한 연령 범위를 추출하지 못했지만 청년/장병/아동 등 특정 대상 성격이 강해 제외했습니다."
+            return "청년/장병/아동 등 특정 대상 성격이 강해 현재 조건에서는 우선순위를 낮췄습니다."
         if floor is not None and floor < 19 and any(keyword in product_name for keyword in YOUTH_OR_SPECIAL_PURPOSE_KEYWORDS):
-            return "PDF에서 명확한 연령 범위를 추출하지 못했지만 청년/장병 등 특정 대상 성격이 강해 제외했습니다."
+            return "청년/장병 등 특정 대상 성격이 강해 현재 조건에서는 우선순위를 낮췄습니다."
 
     return None
 
@@ -1019,13 +1146,13 @@ def product_eligibility_reason(product_name: str, documents: pd.DataFrame) -> Op
     normalized = normalize_key(eligibility_text)
 
     if min_age is not None and max_age is not None:
-        return f"PDF 가입대상에서 만 {min_age}세 이상 만 {max_age}세 이하 조건을 확인했습니다."
+        return f"가입대상에 만 {min_age}세 이상 만 {max_age}세 이하 조건이 있습니다."
     if min_age is not None:
-        return f"PDF 가입대상에서 만 {min_age}세 이상 조건을 확인했습니다."
+        return f"가입대상에 만 {min_age}세 이상 조건이 있습니다."
     if max_age is not None:
-        return f"PDF 가입대상에서 만 {max_age}세 이하 조건을 확인했습니다."
+        return f"가입대상에 만 {max_age}세 이하 조건이 있습니다."
     if any(keyword in normalized for keyword in ("제한없음", "연령에관계없이", "연령에상관없이")):
-        return "PDF 가입대상에서 연령 제한이 없다는 내용을 확인했습니다."
+        return "가입대상에 연령 제한이 없다고 안내되어 있습니다."
     return None
 
 
@@ -1039,8 +1166,8 @@ def build_recommendation_answer(question: str, documents: pd.DataFrame) -> Tuple
 
     if not candidates:
         return (
-            "핵심 답변: 현재 질문만으로는 추천 기준을 정하기 어렵습니다.\n\n"
-            "확인하고 싶은 기준을 하나만 더 알려주세요.\n"
+            "지금 말만으로는 어떤 상품을 골라야 할지 기준이 조금 부족합니다.\n\n"
+            "아래 중 하나만 더 알려주면 훨씬 잘 골라드릴 수 있어요.\n"
             "- 나이대\n"
             "- 목적: 목돈 마련, 주거래, 청약, 반려동물, 친환경, 급여 실적 등\n"
             "- 선호: 자유적립식 또는 정액적립식\n\n"
@@ -1048,22 +1175,16 @@ def build_recommendation_answer(question: str, documents: pd.DataFrame) -> Tuple
             [],
         )
 
-    lines = [build_recommendation_lead(question, age_info), "", "추천 후보:"]
+    lines = [build_recommendation_lead(question, age_info), "", "먼저 볼 만한 상품은 이쪽입니다."]
     for index, product_name in enumerate(candidates, start=1):
-        lines.append(f"{index}. {product_name}")
-        lines.append(f"   - {recommendation_reason(product_name, age_info, documents)}")
+        lines.append(f"{index}. {product_name}: {recommendation_reason(product_name, age_info, documents)}")
 
     if exclusions:
-        lines.extend(["", "제외한 상품:"])
+        lines.extend(["", "조건이 맞지 않아 제외한 대표 상품도 있어요."])
         lines.extend(f"- {exclusion}" for exclusion in exclusions[:4])
 
-    source_titles = list(dict.fromkeys(citation["title"] for citation in citations))
-    if source_titles:
-        lines.append("")
-        lines.append(f"출처: {', '.join(source_titles[:3])}")
-
     lines.append("")
-    lines.append("추가 확인 필요: 실제 가입 가능 여부와 우대금리는 가입 시점의 고시일, 나이, 거래실적, 은행 확인 결과에 따라 달라질 수 있습니다.")
+    lines.append("실제 가입 가능 여부와 우대금리는 가입 시점, 개인 조건, 은행 확인 결과에 따라 달라질 수 있습니다.")
     return "\n".join(lines), citations
 
 
@@ -1135,6 +1256,25 @@ def choose_recommendation_products(
     return filtered_fallback[:3], exclusions
 
 
+def choose_recommendation_products_for_order(
+    documents: pd.DataFrame,
+    preferred_order: List[str],
+    age_info: Dict[str, Optional[int]],
+) -> Tuple[List[str], List[str]]:
+    products = set(product_names_from_documents(documents))
+    selected: List[str] = []
+    exclusions: List[str] = []
+    for product in preferred_order:
+        if product not in products:
+            continue
+        reason = product_age_incompatibility_reason(product, documents, age_info)
+        if reason:
+            append_unique(exclusions, f"{product}: {reason}")
+            continue
+        append_unique(selected, product)
+    return selected[:3], exclusions
+
+
 def should_explain_exclusion(
     product_name: str,
     preferred_order: List[str],
@@ -1159,6 +1299,9 @@ def recommendation_preferred_order(question: str, age_info: Dict[str, Optional[i
         if normalize_key(purpose) in key:
             for product in products:
                 append_unique(order, product)
+
+    if any(marker in key for marker in MILITARY_MARKERS):
+        append_unique(order, "부산은행 장병내일준비적금")
 
     floor = age_floor(age_info)
     if is_under_19_request(age_info):
@@ -1188,13 +1331,15 @@ def is_age_mature(age_info: Dict[str, Optional[int]]) -> bool:
 
 
 def build_recommendation_lead(question: str, age_info: Dict[str, Optional[int]]) -> str:
+    if any(marker in normalize_key(question) for marker in MILITARY_MARKERS):
+        return "군 복무 중이라면 군인 관련 적금부터 확인하는 게 가장 자연스럽습니다. 부산은행은 국군장병을 응원합니다."
     if is_under_19_request(age_info):
-        return "핵심 답변: 10대 또는 만 19세 미만이라면 PDF의 가입대상에서 연령 제한이 없는 상품을 먼저 보는 것이 안전합니다."
+        return "10대 또는 만 19세 미만이라면 청년 전용 상품을 바로 추천하기보다, 가입대상에서 연령 제한이 없는 상품을 먼저 보는 게 안전합니다."
     if is_age_mature(age_info):
-        return "핵심 답변: 50대 이상이라면 청년 전용 상품보다 가입대상 제한이 없거나 중장년 조건에 맞는 적립식예금을 먼저 보는 것이 좋습니다."
+        return "50대 이상이라면 청년 전용 상품보다 가입대상 제한이 없거나 중장년 조건에 맞는 적립식예금을 먼저 보는 편이 좋습니다."
     if age_floor(age_info) is not None and age_floor(age_info) < 40:
-        return "핵심 답변: 청년층이라면 청년 전용 상품과 목적형 적금을 먼저 비교해 볼 수 있습니다."
-    return "핵심 답변: 추천은 나이, 목적, 거래실적에 따라 달라지므로 질문에서 확인되는 조건에 맞춰 후보를 골랐습니다."
+        return "청년층이라면 청년 전용 상품과 목적형 적금을 함께 비교해 볼 수 있습니다."
+    return "나이, 목적, 거래실적에 따라 추천이 달라져서 질문에서 확인되는 조건에 맞춰 후보를 골랐습니다."
 
 
 def recommendation_reason(
@@ -1321,49 +1466,42 @@ def build_template_answer(state: RagState, fallback_reason: Optional[str] = None
         if citation.get("productName")
     ]
     unique_products = list(dict.fromkeys(product_names))
-    source_titles = list(dict.fromkeys(citation["title"] for citation in citations))
     facts = extract_answer_facts(state["question"], contexts, citations, intents)
 
     lines = [build_answer_lead(unique_products, intents, state["question"])]
-    lines.append("")
-    lines.append("확인 내용:")
-    for fact in facts[:4]:
-        lines.append(f"- {fact}")
-    if not facts:
-        lines.append("- 검색된 문서에서 질문과 직접 관련된 문장을 충분히 추출하지 못했습니다. 아래 출처 원문 확인이 필요합니다.")
-
-    if source_titles:
+    if facts:
         lines.append("")
-        lines.append(f"출처: {', '.join(source_titles[:3])}")
+        for fact in facts[:4]:
+            lines.append(f"- {fact}")
+    if not facts:
+        lines.append("")
+        lines.append("검색된 문서에서 질문과 바로 연결되는 문장을 충분히 찾지 못했습니다. 답변근거에서 검색된 문서를 확인해 주세요.")
 
     lines.append("")
-    lines.append("추가 확인 필요: 실제 적용 여부는 가입 시점의 고시일, 개인 조건, 은행 확인 결과에 따라 달라질 수 있습니다.")
+    lines.append("실제 적용 여부는 가입 시점의 고시일, 개인 조건, 은행 확인 결과에 따라 달라질 수 있습니다.")
 
     if fallback_reason:
         lines.append("")
-        lines.append(f"LLM 생성은 실패해 문서 내용 기반 요약으로 대체했습니다. 원인: {fallback_reason}")
+        lines.append("문서 내용 중심으로 안전하게 요약했습니다.")
     return "\n".join(lines)
 
 
 def finalize_generated_answer(answer: str, state: RagState) -> str:
-    source_titles = list(dict.fromkeys(citation["title"] for citation in state.get("citations", [])))
     normalized_lines = []
     for line in answer.splitlines():
         line = line.strip()
         if not line:
             normalized_lines.append("")
             continue
-        if line.startswith("근거 문서:"):
-            line = "출처:" + line[len("근거 문서:") :]
-        if line.startswith("출처:") and source_titles:
-            line = f"출처: {', '.join(source_titles[:3])}"
+        line = strip_visible_answer_label(line)
+        if line is None:
+            continue
         normalized_lines.append(line)
 
     normalized = "\n".join(normalized_lines).strip()
-    if source_titles and "출처:" not in normalized:
-        normalized += f"\n\n출처: {', '.join(source_titles[:3])}"
-    if "추가 확인 필요:" not in normalized:
-        normalized += "\n\n추가 확인 필요: 실제 적용 여부는 가입 시점의 고시일, 개인 조건, 은행 확인 결과에 따라 달라질 수 있습니다."
+    caveat = "실제 적용 여부는 가입 시점의 고시일, 개인 조건, 은행 확인 결과에 따라 달라질 수 있습니다."
+    if caveat not in normalized and "가입 시점" not in normalized:
+        normalized += f"\n\n{caveat}"
     return normalized
 
 
@@ -1371,20 +1509,33 @@ def build_answer_lead(products: List[str], intents: List[str], question: str) ->
     product_text = ", ".join(products[:2]) if products else "검색된 상품"
     question_key = normalize_key(question)
     if "가입대상" in intents:
-        return f"핵심 답변: {product_text}은 문서에 나온 가입자격과 제한 조건을 충족해야 가입할 수 있습니다. 핵심 조건은 아래와 같습니다."
+        return f"{product_text}은 문서에 나온 가입자격과 제한 조건을 먼저 확인해야 합니다."
     if "금리" in intents:
         if "혜택" in question_key or "우대" in question_key or "받" in question_key:
-            return f"핵심 답변: {product_text}은 문서에 나온 우대이율 조건을 충족하면 금리 혜택을 받을 수 있습니다. 핵심 조건은 아래와 같습니다."
-        return f"핵심 답변: {product_text}의 금리 정보는 기본이율과 우대이율 조건을 나누어 확인하면 됩니다. 핵심 내용은 아래와 같습니다."
+            return f"{product_text}은 문서에 나온 우대이율 조건을 충족해야 금리 혜택을 받을 수 있습니다."
+        return f"{product_text}의 금리는 기본이율과 우대이율 조건을 나누어 보면 이해하기 쉽습니다."
     if "서류" in intents:
         if "만기" in question_key:
-            return f"핵심 답변: {product_text}의 만기 관련 서류는 문서의 만기해지와 제출서류 항목을 기준으로 준비하면 됩니다. 핵심 내용은 아래와 같습니다."
-        return f"핵심 답변: {product_text}의 필요 서류는 문서의 신청서류와 제출서류 항목을 기준으로 준비하면 됩니다. 핵심 내용은 아래와 같습니다."
+            return f"{product_text}의 만기 관련 서류는 문서의 만기해지와 제출서류 항목을 기준으로 확인하면 됩니다."
+        return f"{product_text}의 필요 서류는 문서의 신청서류와 제출서류 항목을 기준으로 준비하면 됩니다."
     if "해지" in intents:
-        return f"핵심 답변: {product_text}의 해지는 중도해지, 만기해지, 특별중도해지 조건을 구분해서 보면 됩니다. 핵심 내용은 아래와 같습니다."
+        return f"{product_text}의 해지는 중도해지, 만기해지, 특별중도해지 조건을 구분해서 보면 됩니다."
     if "납입" in intents:
-        return f"핵심 답변: {product_text}의 납입은 가입금액, 월 납입한도, 적립방법을 중심으로 보면 됩니다. 핵심 내용은 아래와 같습니다."
-    return f"핵심 답변: {product_text}에 대해 검색된 상품공시 내용에서 질문과 직접 관련된 항목을 정리했습니다."
+        return f"{product_text}의 납입은 가입금액, 월 납입한도, 적립방법을 중심으로 보면 됩니다."
+    return f"{product_text}에 대해 검색된 상품공시 내용에서 질문과 관련된 부분을 정리했습니다."
+
+
+def strip_visible_answer_label(line: str) -> Optional[str]:
+    hidden_prefixes = ("출처:", "근거 문서:", "사용 가능한 출처 파일 제목:")
+    if line.startswith(hidden_prefixes):
+        return None
+
+    removable_prefixes = ("핵심 답변:", "확인 내용:", "추가 확인 필요:", "답변:")
+    for prefix in removable_prefixes:
+        if line.startswith(prefix):
+            value = line[len(prefix):].strip()
+            return value or None
+    return line
 
 
 def extract_answer_facts(
@@ -1474,28 +1625,24 @@ def build_context_text(state: RagState) -> str:
 
 
 def build_messages(state: RagState) -> List[Dict[str, str]]:
-    source_titles = ", ".join(dict.fromkeys(citation["title"] for citation in state.get("citations", [])))
     system = (
         "당신은 BNK부산은행 상품공시 PDF를 근거로 답변하는 RAG 챗봇입니다. "
         "근거에 있는 내용만 사용하고, 모르는 내용은 추측하지 마세요. "
-        "문서 제목만 나열하지 말고 질문에 직접 답하세요. 한국어로 간결하게 답변하세요. "
-        "출처에는 페이지나 chunk 번호를 쓰지 말고 파일 제목만 쓰세요."
+        "문서 제목만 나열하지 말고 질문에 직접 답하세요. "
+        "은행 상담원처럼 자연스럽고 간결한 한국어로 답변하세요. "
+        "답변 본문에 '핵심 답변', '확인 내용', '출처', '추가 확인 필요' 같은 양식 제목을 쓰지 마세요. "
+        "출처와 다운로드 링크는 시스템이 별도로 보여주므로 본문에는 파일명이나 출처 목록을 쓰지 마세요."
     )
     user = (
         f"질문: {state['question']}\n\n"
         f"검색 근거:\n{build_context_text(state)}\n\n"
-        f"사용 가능한 출처 파일 제목: {source_titles}\n\n"
         "위 근거에서 질문과 직접 관련된 내용만 골라 답변하세요.\n"
         "문서 제목 목록만 반복하지 마세요.\n"
         "구분선, 굵은 글씨, 근거 번호, 장식 문자는 쓰지 말고, 같은 문장을 반복하지 마세요.\n"
-        "확인 내용은 최대 3개 bullet로 쓰고, 문서 안의 조건, 서류, 수치, 예외를 질문 의도에 맞게 짧게 요약하세요.\n"
-        "다음 형식으로 완성된 문장을 작성하세요.\n\n"
-        "핵심 답변: ...\n"
-        "확인 내용:\n"
-        "- ...\n"
-        "- ...\n"
-        "출처: 파일 제목만 작성\n"
-        "추가 확인 필요: ..."
+        "첫 문장은 질문 의도에 맞게 자연스럽게 시작하세요. 예를 들어 군인, 어린이, 고령층 같은 상황이 드러나면 그 상황을 먼저 이해한 듯 답하세요.\n"
+        "조건, 서류, 수치, 예외는 필요할 때만 최대 3개 bullet로 짧게 정리하세요.\n"
+        "본문에 출처, 파일명, 다운로드 안내를 쓰지 마세요.\n"
+        "마지막에는 실제 적용이 가입 시점과 개인 조건에 따라 달라질 수 있음을 자연스러운 문장으로만 덧붙이세요."
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
@@ -1506,22 +1653,18 @@ def build_plain_prompt(state: RagState) -> str:
 
 
 def build_mlx_prompt(state: RagState) -> str:
-    source_titles = ", ".join(dict.fromkeys(citation["title"] for citation in state.get("citations", [])))
     return (
         "BNK부산은행 상품공시 PDF 검색 근거만 사용해 질문에 답하세요. "
         "근거에 없는 내용은 추측하지 마세요. "
-        "출처에는 페이지나 chunk 번호를 쓰지 말고 파일 제목만 쓰세요.\n\n"
+        "은행 상담원처럼 자연스럽고 간결한 한국어로 답변하세요. "
+        "답변 본문에 '핵심 답변', '확인 내용', '출처', '추가 확인 필요' 같은 양식 제목을 쓰지 마세요. "
+        "출처와 다운로드 링크는 시스템이 별도로 보여주므로 본문에는 파일명이나 출처 목록을 쓰지 마세요.\n\n"
         f"질문:\n{state['question']}\n\n"
         f"검색 근거:\n{build_context_text(state)}\n\n"
-        f"사용 가능한 출처 파일 제목:\n{source_titles}\n\n"
-        "아래 형식으로만 답하세요. 같은 내용을 반복하지 마세요. 굵은 글씨와 근거 번호는 쓰지 마세요.\n"
-        "핵심 답변: 질문에 대한 직접 답변\n"
-        "확인 내용:\n"
-        "- 문서 근거에서 뽑은 조건이나 내용\n"
-        "- 문서 근거에서 뽑은 조건이나 내용\n"
-        "- 문서 근거에서 뽑은 조건이나 내용\n"
-        "출처: 파일 제목만 작성\n"
-        "추가 확인 필요: 부족하거나 애매한 정보\n\n"
+        "첫 문장은 질문 의도에 맞게 자연스럽게 시작하세요. "
+        "조건, 서류, 수치, 예외는 필요할 때만 최대 3개 bullet로 짧게 정리하세요. "
+        "같은 내용을 반복하지 말고, 굵은 글씨와 근거 번호는 쓰지 마세요. "
+        "본문에 출처, 파일명, 다운로드 안내를 쓰지 마세요.\n\n"
         "답변:\n"
     )
 
@@ -1662,7 +1805,12 @@ def clean_generated_answer(text: str) -> str:
     if second_strong_marker > 0:
         answer = answer[:second_strong_marker].strip()
 
-    return answer
+    cleaned_lines = []
+    for line in answer.splitlines():
+        stripped = strip_visible_answer_label(line.strip())
+        if stripped is not None:
+            cleaned_lines.append(stripped)
+    return "\n".join(cleaned_lines).strip()
 
 
 def run_fallback_graph(question: str) -> RagState:
