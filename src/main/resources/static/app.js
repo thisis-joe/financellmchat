@@ -5,6 +5,7 @@ const chatDate = document.querySelector("#chat-date");
 const messages = document.querySelector("#chat-messages");
 const form = document.querySelector("#chat-form");
 const input = document.querySelector("#chat-input");
+const mobileMedia = window.matchMedia("(max-width: 640px)");
 
 const quickQuestions = {
     "예금": "청년 주택드림 청약통장의 가입대상과 우대이율은 무엇을 확인해야 하나요?",
@@ -37,6 +38,41 @@ function todayText() {
     const day = date.getDate();
     const weekday = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
     return `${year}년 ${month}월 ${day}일(${weekday})`;
+}
+
+function isMobileChat() {
+    return mobileMedia.matches;
+}
+
+function updateChatViewport() {
+    const viewport = window.visualViewport;
+    const width = viewport?.width ?? window.innerWidth;
+    const height = viewport?.height ?? window.innerHeight;
+    const top = viewport?.offsetTop ?? 0;
+
+    document.documentElement.style.setProperty("--chat-viewport-width", `${width}px`);
+    document.documentElement.style.setProperty("--chat-viewport-height", `${height}px`);
+    document.documentElement.style.setProperty("--chat-viewport-top", `${top}px`);
+}
+
+function scrollMessagesToBottom() {
+    messages.scrollTop = messages.scrollHeight;
+}
+
+function focusChatInput() {
+    try {
+        input.focus({preventScroll: true});
+    } catch (error) {
+        input.focus();
+    }
+}
+
+function setChatOpen(isOpen) {
+    document.documentElement.classList.toggle("chat-lock", isOpen);
+    document.body.classList.toggle("chat-lock", isOpen);
+    if (isOpen) {
+        updateChatViewport();
+    }
 }
 
 async function requestJson(url, options = {}) {
@@ -125,7 +161,7 @@ function appendBot(html, extraClass = "") {
         <div class="bubble bot-bubble ${extraClass}">${html}</div>
     `;
     messages.appendChild(row);
-    messages.scrollTop = messages.scrollHeight;
+    scrollMessagesToBottom();
     return row;
 }
 
@@ -134,7 +170,7 @@ function appendUser(text) {
     row.className = "user-row";
     row.innerHTML = `<div class="bubble user-bubble">${escapeHtml(text)}</div>`;
     messages.appendChild(row);
-    messages.scrollTop = messages.scrollHeight;
+    scrollMessagesToBottom();
 }
 
 function renderCitations(citations) {
@@ -303,7 +339,7 @@ function welcome() {
                 return;
             }
             input.value = quickQuestions[button.dataset.label];
-            input.focus();
+            focusChatInput();
         });
     });
 }
@@ -326,7 +362,7 @@ async function ask(question) {
         loading.querySelectorAll(".evidence-actions").forEach((actions) => {
             actions.querySelector(".evidence-toggle").addEventListener("click", async () => {
                 await toggleEvidence(actions);
-                messages.scrollTop = messages.scrollHeight;
+                scrollMessagesToBottom();
             });
         });
         loading.querySelectorAll(".feedback-actions button").forEach((button) => {
@@ -349,21 +385,49 @@ async function ask(question) {
     } catch (error) {
         loading.querySelector(".bot-bubble").textContent = "답변을 가져오지 못했습니다. 잠시 후 다시 시도해 주세요.";
     }
-    messages.scrollTop = messages.scrollHeight;
+    scrollMessagesToBottom();
+}
+
+updateChatViewport();
+
+window.addEventListener("resize", updateChatViewport);
+if (mobileMedia.addEventListener) {
+    mobileMedia.addEventListener("change", updateChatViewport);
+} else if (mobileMedia.addListener) {
+    mobileMedia.addListener(updateChatViewport);
+}
+if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", () => {
+        updateChatViewport();
+        requestAnimationFrame(scrollMessagesToBottom);
+    });
+    window.visualViewport.addEventListener("scroll", updateChatViewport);
 }
 
 openButton.addEventListener("click", () => {
     panel.hidden = false;
     openButton.hidden = true;
+    setChatOpen(true);
     chatDate.textContent = todayText();
     welcome();
-    input.focus();
+    if (!isMobileChat()) {
+        focusChatInput();
+    }
 });
 
 closeButton.addEventListener("click", () => {
+    input.blur();
     panel.hidden = true;
     openButton.hidden = false;
+    setChatOpen(false);
 });
+
+input.addEventListener("focus", () => {
+    updateChatViewport();
+    window.setTimeout(scrollMessagesToBottom, 250);
+});
+
+input.addEventListener("blur", updateChatViewport);
 
 form.addEventListener("submit", async (event) => {
     event.preventDefault();
