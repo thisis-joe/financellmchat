@@ -509,38 +509,48 @@ button {
 }
 
 .citation-list {
-    margin-top: 12px;
+    margin-top: 8px;
     display: grid;
-    gap: 8px;
+    gap: 5px;
 }
 
 .citation-card {
-    border-left: 4px solid #ff4a4f;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 7px;
+    border-left: 3px solid #ff4a4f;
     background: #fafafa;
-    border-radius: 8px;
-    padding: 9px 11px;
-    font-size: 13px;
-    line-height: 1.35;
+    border-radius: 7px;
+    padding: 6px 8px;
+    font-size: 11px;
+    line-height: 1.25;
 }
 
 .citation-card span {
-    display: block;
-    margin-bottom: 3px;
+    display: inline-block;
+    margin: 0;
     color: #858891;
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 800;
 }
 
 .citation-card strong {
     display: block;
+    min-width: 0;
     color: #343741;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .citation-card a {
     display: inline-block;
-    margin-top: 5px;
+    margin: 0;
     color: #d83238;
+    font-size: 11px;
     font-weight: 700;
+    text-decoration: none;
 }
 
 .evidence-actions {

@@ -6,6 +6,7 @@ const messages = document.querySelector("#chat-messages");
 const form = document.querySelector("#chat-form");
 const input = document.querySelector("#chat-input");
 const mobileMedia = window.matchMedia("(max-width: 640px)");
+let lastQuestionContext = "";
 
 const quickQuestions = {
     "예금": "청년 주택드림 청약통장의 가입대상과 우대이율은 무엇을 확인해야 하나요?",
@@ -29,6 +30,16 @@ const representativeQuestions = [
     "주택청약종합저축 가입자격 알려줘",
     "BNK내맘대로 적금 우대이율 조건은?",
     "정기적금 가입기간과 이율은?"
+];
+
+const followUpMarkers = ["찾아", "찾아줘", "추천", "골라", "알려줘", "설명해줘", "해줘", "응", "그래"];
+const productContextHints = [
+    {pattern: /(롯데\s*)?자이언츠|가을\s*야구|야구\s*적금/i, context: "BNK가을야구적금"},
+    {pattern: /펫\s*적금|반려동물|강아지|고양이/i, context: "펫 적금"},
+    {pattern: /장병|군인|군복무|현역|전역/i, context: "부산은행 장병내일준비적금"},
+    {pattern: /청년\s*도약|도약계좌/i, context: "부산은행 청년도약계좌"},
+    {pattern: /주택\s*드림|청년\s*주택\s*드림/i, context: "청년 주택드림 청약통장"},
+    {pattern: /주택\s*청약\s*종합\s*저축/i, context: "주택청약종합저축"}
 ];
 
 function todayText() {
@@ -65,6 +76,39 @@ function focusChatInput() {
     } catch (error) {
         input.focus();
     }
+}
+
+function rememberQuestionContext(question) {
+    const ageMatch = question.match(/(?:만\s*)?\d{1,3}\s*세|\d{2,3}\s*대/);
+    if (ageMatch) {
+        lastQuestionContext = `${ageMatch[0].replace(/\s+/g, " ")} 조건`;
+        return;
+    }
+
+    for (const hint of productContextHints) {
+        if (hint.pattern.test(question)) {
+            lastQuestionContext = hint.context;
+            return;
+        }
+    }
+}
+
+function isFollowUpQuestion(question) {
+    const compact = question.replace(/\s+/g, "");
+    if (!lastQuestionContext || compact.length > 8) {
+        return false;
+    }
+    return followUpMarkers.some((marker) => compact.includes(marker));
+}
+
+function resolveQuestionForRequest(question) {
+    if (!isFollowUpQuestion(question)) {
+        return question;
+    }
+    if (/조건$/.test(lastQuestionContext)) {
+        return `${lastQuestionContext}에 맞는 적립식예금 추천해줘`;
+    }
+    return `${lastQuestionContext} 설명해줘`;
 }
 
 function setChatOpen(isOpen) {
@@ -188,7 +232,7 @@ function renderCitations(citations) {
         return "";
     }
 
-    const cards = citations.map((citation) => {
+    const cards = citations.slice(0, 3).map((citation) => {
         const downloadUrl = citation.documentId
             ? `/api/documents/${encodeURIComponent(citation.documentId)}/download`
             : "";
@@ -197,7 +241,7 @@ function renderCitations(citations) {
             : "";
         return `
             <div class="citation-card">
-                <span>출처</span>
+                <span>자료</span>
                 <strong>${escapeHtml(citation.title)}</strong>
                 ${link}
             </div>
@@ -354,17 +398,18 @@ function welcome() {
     });
 }
 
-async function ask(question) {
+async function ask(question, requestQuestion = question) {
     appendUser(question);
     const loading = appendBot(`<span class="loading">답변을 찾고 있습니다...</span>`);
 
     try {
         const result = await requestJson("/api/ask", {
             method: "POST",
-            body: JSON.stringify({question})
+            body: JSON.stringify({question: requestQuestion})
         });
         loading.querySelector(".bot-bubble").innerHTML = `
             ${renderAnswer(result.answer)}
+            ${renderCitations(result.citations)}
             ${renderEvidenceAction(result.historyId, result.citations)}
             ${renderFeedbackActions(result.historyId)}
         `;
@@ -445,5 +490,7 @@ form.addEventListener("submit", async (event) => {
         return;
     }
     input.value = "";
-    await ask(question);
+    const requestQuestion = resolveQuestionForRequest(question);
+    rememberQuestionContext(question);
+    await ask(question, requestQuestion);
 });

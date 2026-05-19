@@ -116,6 +116,8 @@ PURPOSE_PRODUCT_HINTS = {
     "환경": ["저탄소 실천 적금"],
     "저탄소": ["저탄소 실천 적금"],
     "야구": ["BNK가을야구적금"],
+    "자이언츠": ["BNK가을야구적금"],
+    "롯데자이언츠": ["BNK가을야구적금"],
     "농구": ["BNK썸농구단 우승기원적금"],
     "주거래": ["Only One 주거래 우대적금"],
     "급여": ["Only One 주거래 우대적금"],
@@ -163,6 +165,10 @@ PRODUCT_ALIAS_HINTS = {
     "저탄소실천적금": "저탄소 실천 적금",
     "펫적금": "펫 적금",
     "가을야구적금": "BNK가을야구적금",
+    "bnk가을야구": "BNK가을야구적금",
+    "야구적금": "BNK가을야구적금",
+    "자이언츠": "BNK가을야구적금",
+    "롯데자이언츠": "BNK가을야구적금",
 }
 
 
@@ -253,7 +259,7 @@ def retrieve_documents(state: RagState) -> RagState:
     )
 
     top_k = int(os.getenv("RAG_TOP_K", "4"))
-    top_indexes = np.argsort(scores)[::-1][:top_k]
+    top_indexes = np.argsort(scores)[::-1]
     citations = []
     seen_citation_titles = set()
     contexts = []
@@ -263,6 +269,10 @@ def retrieve_documents(state: RagState) -> RagState:
             continue
 
         row = documents.iloc[index]
+        row_product = none_if_nan(row.get("product_name")) or ""
+        if focus["products"] and row_product not in focus["products"]:
+            continue
+
         raw_content = str(row["content"])
         content = strip_import_metadata(raw_content)
         title = source_file_title(row, raw_content)
@@ -287,11 +297,13 @@ def retrieve_documents(state: RagState) -> RagState:
         contexts.append(
             {
                 "title": title,
-                "productName": none_if_nan(row.get("product_name")),
+                "productName": row_product,
                 "content": context_content,
                 "score": score,
             }
         )
+        if len(contexts) >= top_k:
+            break
 
     return {
         "citations": citations,
@@ -541,6 +553,15 @@ def rerank_score(row: pd.Series, base_score: float, focus: Dict[str, Any]) -> fl
     score += min(intent_boost, 0.32)
     score += min(keyword_boost, 0.12)
     score += summary_section_boost(content_key, focus)
+    score += product_section_boost(content_key, focus)
+    score -= trailing_notice_penalty(content_key, focus)
+    if focus.get("products"):
+        title_lower = title.lower()
+        terms_key = normalize_key(" ".join(focus.get("terms", [])))
+        if "상품설명" in focus.get("intents", []) and "p1" in title_lower:
+            score += 0.35
+        if any(marker in terms_key for marker in ("롯데", "자이언츠", "야구")) and "롯데자이언츠" in content_key:
+            score += 0.25
     score -= age_product_penalty(product_name, title, focus)
     score -= product_mismatch_penalty
     return score
@@ -569,6 +590,34 @@ def summary_section_boost(content_key: str, focus: Dict[str, Any]) -> float:
         boost += 0.10
 
     return boost
+
+
+def product_section_boost(content_key: str, focus: Dict[str, Any]) -> float:
+    if not focus.get("products"):
+        return 0.0
+
+    boost = 0.0
+    if any(label in content_key for label in ("상품명", "상품특징", "상품개요", "거래조건")):
+        boost += 0.18
+    if "상품설명" in focus.get("intents", []) and any(label in content_key for label in ("상품특징", "상품개요", "거래조건")):
+        boost += 0.24
+    if "금리" in focus.get("intents", []) and any(label in content_key for label in ("우대이율", "우대금리")):
+        boost += 0.35
+    if "금리" in focus.get("intents", []) and any(label in content_key for label in ("기본이율", "기본금리")):
+        boost += 0.12
+    if any(term in content_key for term in ("우대이율", "우대금리", "기본이율")) and any(term in focus.get("terms", []) for term in ("우대이율", "우대금리", "혜택", "자이언츠", "롯데")):
+        boost += 0.12
+    return boost
+
+
+def trailing_notice_penalty(content_key: str, focus: Dict[str, Any]) -> float:
+    if not focus.get("products"):
+        return 0.0
+    if any(intent in focus.get("intents", []) for intent in ("유의사항", "해지")):
+        return 0.0
+    if any(label in content_key for label in ("휴면예금", "위법계약해지권", "민원상담", "분쟁이있는경우", "금융감독원")):
+        return 0.65
+    return 0.0
 
 
 def detect_age_info(question: str) -> Dict[str, Optional[int]]:
@@ -1050,7 +1099,7 @@ def is_deposit_catalog_question(question: str) -> bool:
 
 def is_recommendation_question(question: str) -> bool:
     key = normalize_key(question)
-    recommendation_terms = ("추천", "골라", "맞는", "어울리는", "뭐가좋", "무엇이좋", "상품좀", "가입하면좋")
+    recommendation_terms = ("추천", "골라", "맞는", "어울리는", "뭐가좋", "무엇이좋", "상품좀", "가입하면좋", "찾아", "찾아줘")
     return any(term in key for term in recommendation_terms)
 
 
@@ -1644,6 +1693,9 @@ def split_fact_candidates(content: str) -> List[str]:
 
 
 def is_relevant_segment(segment: str, terms: List[str], intents: List[str]) -> bool:
+    if is_noise_segment(segment):
+        return False
+
     segment_key = normalize_key(segment)
     if any(normalize_key(term) in segment_key for term in terms if len(normalize_key(term)) >= 2):
         return True
@@ -1659,9 +1711,28 @@ def is_relevant_segment(segment: str, terms: List[str], intents: List[str]) -> b
     return False
 
 
+def is_noise_segment(segment: str) -> bool:
+    segment_key = normalize_key(segment)
+    noise_markers = (
+        "준법감시인",
+        "심의일자",
+        "유효기일",
+        "이설명서는금융소비자의권익보호",
+        "충분한설명을받을권리",
+        "금리등아래의내용은고객의이해를돕기위하여",
+        "민원상담",
+        "금융감독원",
+        "분쟁이있는경우",
+    )
+    return any(marker in segment_key for marker in noise_markers)
+
+
 def clean_fact(segment: str) -> str:
     segment = re.sub(r"^[▣ㅇ※☞①②③④⑤•·]\s*", "", segment).strip()
+    segment = re.sub(r"상\s*품\s*명", "상품명", segment)
+    segment = segment.replace("▶", " ")
     segment = re.sub(r"\s+", " ", segment)
+    segment = re.sub(r"\s+\d+\s*$", "", segment)
     if len(segment) > 230:
         segment = segment[:230].rstrip() + "..."
     return segment
