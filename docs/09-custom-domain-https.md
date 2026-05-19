@@ -22,6 +22,40 @@ curl -I https://api.bnkaichat.xyz/index.html
 
 `1016`은 보통 Cloudflare가 원본 서버를 DNS로 찾지 못한다는 뜻이다. 즉, HTTPS 인증서만 아직 안 나온 문제가 아니라 Cloudflare DNS 레코드의 원본 대상이 잘못됐거나, Vercel 커스텀 도메인 연결이 끝나지 않은 상태로 봐야 한다.
 
+## 지금 바로 할 일
+
+가장 먼저 할 일은 인증서를 직접 만드는 것이 아니다. Vercel이 인증서를 자동 발급할 수 있게 DNS와 Vercel 도메인 연결을 맞추는 것이다.
+
+1. Vercel 프로젝트 `financellmchat`의 `Settings > Domains`에 `bnkaichat.xyz`를 추가한다.
+2. 필요하면 같은 화면에 `www.bnkaichat.xyz`도 추가한다.
+3. Cloudflare DNS에서 `@` 레코드를 Vercel로 보낸다.
+
+```text
+Type: A
+Name: @
+Content: 76.76.21.21
+Proxy status: DNS only
+```
+
+4. Cloudflare DNS에서 `www` 레코드를 Vercel로 보낸다.
+
+```text
+Type: CNAME
+Name: www
+Content: cname.vercel-dns-0.com
+Proxy status: DNS only
+```
+
+5. `api.bnkaichat.xyz`는 건드리지 않는다. 이 주소는 이미 Cloudflare Tunnel API로 쓰고 있다.
+
+Chrome은 HTTPS 접속을 기대하므로 최종 접속 주소는 다음처럼 사용한다.
+
+```text
+https://bnkaichat.xyz
+```
+
+Vercel `Settings > Domains`에서 상태가 `Valid Configuration`으로 바뀌면 HTTPS 인증서는 Vercel이 자동으로 발급하고 적용한다.
+
 ## 권장 구조
 
 도메인은 역할을 나눈다.

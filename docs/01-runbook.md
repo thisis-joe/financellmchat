@@ -148,6 +148,18 @@ curl -s -X POST http://localhost:8080/api/ask \
   -d '{"question":"장병내일준비적금 만기 때 어떤 서류가 필요해?"}'
 ```
 
+검색 근거 디버그 API 확인:
+
+```bash
+curl -s -X POST http://localhost:8080/api/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"펫 적금 혜택 받으려면 뭘 해야 해?"}'
+
+curl -s http://localhost:8080/api/histories/{historyId}/evidence
+```
+
+첫 번째 응답의 `historyId`를 두 번째 명령의 `{historyId}`에 넣는다. 화면에서는 답변 하단의 작은 `답변근거` 버튼을 누르면 같은 정보를 확인할 수 있다.
+
 대표 질문 확인:
 
 ```bash
@@ -165,6 +177,10 @@ curl -s -X POST http://localhost:8080/api/ask \
 
 curl -s -X POST http://localhost:8080/api/ask \
   -H 'Content-Type: application/json' \
+  -d '{"question":"10대인데 추천해주세요"}'
+
+curl -s -X POST http://localhost:8080/api/ask \
+  -H 'Content-Type: application/json' \
   -d '{"question":"펫 적금 혜택 받으려면 뭘 해야 해?"}'
 ```
 
@@ -173,7 +189,9 @@ curl -s -X POST http://localhost:8080/api/ask \
 - `ㅎㅇ`: 상품 추천이 아니라 인사와 안내 문장
 - `예금 종류`: 적립식예금, 거치식예금, 입출금자유예금 등 예금상품 분류 안내
 - `50대인데 추천해주세요`: 청년 전용 상품 제외, 중장년층이 확인할 만한 적립식예금 추천
+- `10대인데 추천해주세요`: PDF 가입대상 확인 후 만 19세 이상 상품 제외
 - `펫 적금 혜택`: 펫 적금 문서만 출처로 사용
+- `답변근거`: 검색한 질문은 score와 snippet이 보이고, `ㅎㅇ` 같은 직접 응답은 문서 검색이 필요 없었다고 나온다.
 
 대표 질문 10개를 한 번에 확인하려면:
 

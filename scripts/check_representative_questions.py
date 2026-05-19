@@ -65,6 +65,20 @@ CASES = [
         citation_product_not_contains=["청년", "장병", "백세청춘"],
     ),
     Case(
+        name="10대 추천은 PDF 가입대상 조건 확인",
+        question="10대인데 추천해주세요",
+        status="RECOMMENDATION",
+        answer_contains=["추천 후보", "주택청약종합저축", "제외한 상품"],
+        citation_product_not_contains=["청년도약계좌", "청년 주택드림", "장병"],
+    ),
+    Case(
+        name="만 18세 추천은 만 19세 이상 상품 제외",
+        question="만 18세인데 추천해주세요",
+        status="RECOMMENDATION",
+        answer_contains=["추천 후보", "주택청약종합저축", "만 19세 이상"],
+        citation_product_not_contains=["청년도약계좌", "청년 주택드림", "장병"],
+    ),
+    Case(
         name="펫 적금 혜택은 펫 문서만 사용",
         question="펫 적금 혜택 받으려면 뭘 해야 해?",
         answer_contains=["펫 적금", "동물등록증"],

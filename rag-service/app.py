@@ -66,6 +66,14 @@ DEPOSIT_PRODUCT_CATEGORIES = [
 
 NON_RECOMMENDABLE_PRODUCT_KEYWORDS = ("약관", "ISA")
 YOUTH_OR_SPECIAL_PURPOSE_KEYWORDS = ("청년", "장병", "아기", "아이사랑", "주택드림", "기쁨두배")
+ELIGIBILITY_LABELS = ("가입대상", "가입자격", "가입제한")
+
+TEEN_RECOMMENDATIONS = [
+    "주택청약종합저축",
+    "BNK내맘대로 적금",
+    "정기적금",
+    "저탄소 실천 적금",
+]
 
 AGE_NEUTRAL_RECOMMENDATIONS = [
     "BNK내맘대로 적금",
@@ -574,6 +582,16 @@ def age_floor(age_info: Dict[str, Optional[int]]) -> Optional[int]:
     return None
 
 
+def age_range(age_info: Dict[str, Optional[int]]) -> Tuple[Optional[int], Optional[int], bool]:
+    if age_info.get("age") is not None:
+        age = int(age_info["age"])
+        return age, age, True
+    if age_info.get("age_group") is not None:
+        start = int(age_info["age_group"])
+        return start, start + 9, False
+    return None, None, False
+
+
 def age_product_penalty(product_name: str, title: str, focus: Dict[str, Any]) -> float:
     floor = age_floor(focus.get("age", {}))
     if floor is None or floor < 35:
@@ -924,12 +942,99 @@ def build_deposit_catalog_answer(question: str, documents: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
+def product_eligibility_text(documents: pd.DataFrame, product_name: str) -> str:
+    rows = documents[documents["product_name"].fillna("").astype(str) == product_name]
+    snippets: List[str] = []
+    for _, row in rows.iterrows():
+        content = strip_import_metadata(none_if_nan(row.get("content")) or "")
+        for label in ELIGIBILITY_LABELS:
+            index = content.find(label)
+            if index >= 0:
+                append_unique(snippets, compact_text(content[index:index + 900]))
+
+    if not snippets:
+        overview = select_product_overview_row(documents, product_name)
+        if overview is not None:
+            content = strip_import_metadata(none_if_nan(overview.get("content")) or "")
+            append_unique(snippets, compact_text(content[:900]))
+
+    return "\n".join(snippets)
+
+
+def extract_age_bounds(eligibility_text: str) -> Tuple[Optional[int], Optional[int]]:
+    if not eligibility_text:
+        return None, None
+
+    min_ages: List[int] = []
+    max_ages: List[int] = []
+
+    for start, end in re.findall(r"(?:만\s*)?(\d{1,3})\s*세\s*[~∼-]\s*(?:만\s*)?(\d{1,3})\s*세", eligibility_text):
+        min_ages.append(int(start))
+        max_ages.append(int(end))
+
+    for age in re.findall(r"(?:만\s*)?(\d{1,3})\s*세\s*(?:이상|부터)", eligibility_text):
+        min_ages.append(int(age))
+
+    for age in re.findall(r"(?:만\s*)?(\d{1,3})\s*세\s*(?:이하|까지|이내)", eligibility_text):
+        max_ages.append(int(age))
+
+    return (max(min_ages) if min_ages else None, min(max_ages) if max_ages else None)
+
+
+def product_age_incompatibility_reason(
+    product_name: str,
+    documents: pd.DataFrame,
+    age_info: Dict[str, Optional[int]],
+) -> Optional[str]:
+    start_age, end_age, is_exact_age = age_range(age_info)
+    if start_age is None or end_age is None:
+        return None
+
+    eligibility_text = product_eligibility_text(documents, product_name)
+    min_age, max_age = extract_age_bounds(eligibility_text)
+
+    if min_age is not None and start_age < min_age:
+        if is_exact_age:
+            return f"PDF 가입대상에 만 {min_age}세 이상 조건이 있어 현재 나이와 맞지 않습니다."
+        return f"PDF 가입대상에 만 {min_age}세 이상 조건이 있어 입력한 나이대 전체에 안전하게 맞는 상품으로 보기 어렵습니다."
+
+    if max_age is not None and end_age > max_age:
+        if is_exact_age:
+            return f"PDF 가입대상에 만 {max_age}세 이하 조건이 있어 현재 나이와 맞지 않습니다."
+        return f"PDF 가입대상에 만 {max_age}세 이하 조건이 있어 입력한 나이대 전체에 안전하게 맞는 상품으로 보기 어렵습니다."
+
+    if min_age is None and max_age is None:
+        floor = age_floor(age_info)
+        if floor is not None and floor >= 35 and any(keyword in product_name for keyword in YOUTH_OR_SPECIAL_PURPOSE_KEYWORDS):
+            return "PDF에서 명확한 연령 범위를 추출하지 못했지만 청년/장병/아동 등 특정 대상 성격이 강해 제외했습니다."
+        if floor is not None and floor < 19 and any(keyword in product_name for keyword in YOUTH_OR_SPECIAL_PURPOSE_KEYWORDS):
+            return "PDF에서 명확한 연령 범위를 추출하지 못했지만 청년/장병 등 특정 대상 성격이 강해 제외했습니다."
+
+    return None
+
+
+def product_eligibility_reason(product_name: str, documents: pd.DataFrame) -> Optional[str]:
+    eligibility_text = product_eligibility_text(documents, product_name)
+    min_age, max_age = extract_age_bounds(eligibility_text)
+    normalized = normalize_key(eligibility_text)
+
+    if min_age is not None and max_age is not None:
+        return f"PDF 가입대상에서 만 {min_age}세 이상 만 {max_age}세 이하 조건을 확인했습니다."
+    if min_age is not None:
+        return f"PDF 가입대상에서 만 {min_age}세 이상 조건을 확인했습니다."
+    if max_age is not None:
+        return f"PDF 가입대상에서 만 {max_age}세 이하 조건을 확인했습니다."
+    if any(keyword in normalized for keyword in ("제한없음", "연령에관계없이", "연령에상관없이")):
+        return "PDF 가입대상에서 연령 제한이 없다는 내용을 확인했습니다."
+    return None
+
+
 def build_recommendation_answer(question: str, documents: pd.DataFrame) -> Tuple[str, List[Dict[str, Any]]]:
     if documents.empty:
         return "추천에 사용할 상품공시 문서가 아직 적재되어 있지 않습니다.", []
 
     age_info = detect_age_info(question)
-    candidates = choose_recommendation_products(question, documents, age_info)
+    candidates, exclusions = choose_recommendation_products(question, documents, age_info)
     citations = build_recommendation_citations(documents, candidates)
 
     if not candidates:
@@ -946,16 +1051,11 @@ def build_recommendation_answer(question: str, documents: pd.DataFrame) -> Tuple
     lines = [build_recommendation_lead(question, age_info), "", "추천 후보:"]
     for index, product_name in enumerate(candidates, start=1):
         lines.append(f"{index}. {product_name}")
-        lines.append(f"   - {recommendation_reason(product_name, age_info)}")
+        lines.append(f"   - {recommendation_reason(product_name, age_info, documents)}")
 
-    if is_age_mature(age_info):
-        lines.extend(
-            [
-                "",
-                "제외한 상품:",
-                "- 청년도약계좌, 청년 주택드림 청약통장, 장병내일준비적금처럼 청년/군복무/특정 연령 성격이 강한 상품은 50대 추천에서는 우선 제외했습니다.",
-            ]
-        )
+    if exclusions:
+        lines.extend(["", "제외한 상품:"])
+        lines.extend(f"- {exclusion}" for exclusion in exclusions[:4])
 
     source_titles = list(dict.fromkeys(citation["title"] for citation in citations))
     if source_titles:
@@ -985,10 +1085,10 @@ def choose_recommendation_products(
     question: str,
     documents: pd.DataFrame,
     age_info: Dict[str, Optional[int]],
-) -> List[str]:
+) -> Tuple[List[str], List[str]]:
     products = product_names_from_documents(documents)
     if not products:
-        return []
+        return [], []
 
     available = set(products)
     preferred_order = recommendation_preferred_order(question, age_info)
@@ -996,10 +1096,14 @@ def choose_recommendation_products(
     question_key = normalize_key(question)
 
     scored: List[Tuple[float, str]] = []
+    exclusions: List[str] = []
     for product in products:
         if any(keyword in product for keyword in NON_RECOMMENDABLE_PRODUCT_KEYWORDS):
             continue
-        if product_is_age_incompatible(product, age_info, explicit_products):
+        incompatibility_reason = product_age_incompatibility_reason(product, documents, age_info)
+        if incompatibility_reason:
+            if should_explain_exclusion(product, preferred_order, explicit_products, age_info):
+                append_unique(exclusions, f"{product}: {incompatibility_reason}")
             continue
 
         score = 0.0
@@ -1020,10 +1124,31 @@ def choose_recommendation_products(
     scored.sort(key=lambda item: (-item[0], products.index(item[1])))
     selected = [product for _, product in scored[:3] if product in available]
     if selected:
-        return selected
+        return selected, exclusions
 
     fallback_order = [product for product in AGE_NEUTRAL_RECOMMENDATIONS if product in available]
-    return fallback_order[:3]
+    filtered_fallback = [
+        product
+        for product in fallback_order
+        if not product_age_incompatibility_reason(product, documents, age_info)
+    ]
+    return filtered_fallback[:3], exclusions
+
+
+def should_explain_exclusion(
+    product_name: str,
+    preferred_order: List[str],
+    explicit_products: List[str],
+    age_info: Dict[str, Optional[int]],
+) -> bool:
+    floor = age_floor(age_info)
+    if product_name in explicit_products or product_name in preferred_order:
+        return True
+    if floor is not None and floor < 20 and any(keyword in product_name for keyword in YOUTH_OR_SPECIAL_PURPOSE_KEYWORDS):
+        return True
+    if floor is not None and floor >= 40 and any(keyword in product_name for keyword in YOUTH_OR_SPECIAL_PURPOSE_KEYWORDS):
+        return True
+    return False
 
 
 def recommendation_preferred_order(question: str, age_info: Dict[str, Optional[int]]) -> List[str]:
@@ -1036,7 +1161,10 @@ def recommendation_preferred_order(question: str, age_info: Dict[str, Optional[i
                 append_unique(order, product)
 
     floor = age_floor(age_info)
-    if floor is not None and floor < 40:
+    if is_under_19_request(age_info):
+        for product in TEEN_RECOMMENDATIONS:
+            append_unique(order, product)
+    elif floor is not None and floor < 40:
         for product in YOUTH_RECOMMENDATIONS:
             append_unique(order, product)
     elif is_age_mature(age_info):
@@ -1048,26 +1176,10 @@ def recommendation_preferred_order(question: str, age_info: Dict[str, Optional[i
     return order
 
 
-def product_is_age_incompatible(
-    product_name: str,
-    age_info: Dict[str, Optional[int]],
-    explicit_products: List[str],
-) -> bool:
-    if product_name in explicit_products:
-        return False
-
-    floor = age_floor(age_info)
-    if floor is None:
-        return False
-
-    if floor >= 35 and any(keyword in product_name for keyword in YOUTH_OR_SPECIAL_PURPOSE_KEYWORDS):
-        return True
-
-    exact_age = age_info.get("age")
-    if product_name == "백세청춘 실버적금" and exact_age is not None and exact_age < 56:
-        return True
-
-    return False
+def is_under_19_request(age_info: Dict[str, Optional[int]]) -> bool:
+    if age_info.get("age") is not None:
+        return int(age_info["age"]) < 19
+    return age_info.get("age_group") == 10
 
 
 def is_age_mature(age_info: Dict[str, Optional[int]]) -> bool:
@@ -1076,6 +1188,8 @@ def is_age_mature(age_info: Dict[str, Optional[int]]) -> bool:
 
 
 def build_recommendation_lead(question: str, age_info: Dict[str, Optional[int]]) -> str:
+    if is_under_19_request(age_info):
+        return "핵심 답변: 10대 또는 만 19세 미만이라면 PDF의 가입대상에서 연령 제한이 없는 상품을 먼저 보는 것이 안전합니다."
     if is_age_mature(age_info):
         return "핵심 답변: 50대 이상이라면 청년 전용 상품보다 가입대상 제한이 없거나 중장년 조건에 맞는 적립식예금을 먼저 보는 것이 좋습니다."
     if age_floor(age_info) is not None and age_floor(age_info) < 40:
@@ -1083,7 +1197,14 @@ def build_recommendation_lead(question: str, age_info: Dict[str, Optional[int]])
     return "핵심 답변: 추천은 나이, 목적, 거래실적에 따라 달라지므로 질문에서 확인되는 조건에 맞춰 후보를 골랐습니다."
 
 
-def recommendation_reason(product_name: str, age_info: Dict[str, Optional[int]]) -> str:
+def recommendation_reason(
+    product_name: str,
+    age_info: Dict[str, Optional[int]],
+    documents: pd.DataFrame,
+) -> str:
+    eligibility_reason = product_eligibility_reason(product_name, documents)
+    if eligibility_reason:
+        return eligibility_reason
     if product_name == "백세청춘 실버적금":
         if age_info.get("age_group") == 50 and age_info.get("age") is None:
             return "문서상 가입대상이 만 56세 이상이라 50대 중 만 56세 이상이면 우선 확인할 만합니다."

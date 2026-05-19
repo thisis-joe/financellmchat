@@ -174,6 +174,74 @@ function renderFeedbackActions(historyId) {
     `;
 }
 
+function renderEvidenceAction(historyId) {
+    if (!historyId) {
+        return "";
+    }
+    return `
+        <div class="evidence-actions" data-history-id="${escapeHtml(historyId)}">
+            <button class="evidence-toggle" type="button" aria-expanded="false">답변근거</button>
+            <span class="evidence-status" aria-live="polite"></span>
+        </div>
+    `;
+}
+
+function renderEvidencePanel(evidence) {
+    const items = evidence.evidences || [];
+    const itemHtml = items.map((item) => {
+        const score = Number.isFinite(Number(item.score))
+            ? Number(item.score).toFixed(3)
+            : "-";
+        const downloadUrl = item.documentId
+            ? `/api/documents/${encodeURIComponent(item.documentId)}/download`
+            : "";
+        const link = downloadUrl
+            ? `<a href="${escapeHtml(downloadUrl)}" download>PDF</a>`
+            : "";
+        return `
+            <li>
+                <div class="evidence-item-head">
+                    <strong>${item.rank}. ${escapeHtml(item.title)}</strong>
+                    <span>score ${escapeHtml(score)}</span>
+                </div>
+                <p>${escapeHtml(item.snippet || "발췌문이 없습니다.")}</p>
+                ${link}
+            </li>
+        `;
+    }).join("");
+
+    return `
+        <div class="evidence-panel">
+            <p>${escapeHtml(evidence.summary)}</p>
+            ${items.length ? `<ol>${itemHtml}</ol>` : ""}
+        </div>
+    `;
+}
+
+async function toggleEvidence(actions) {
+    const button = actions.querySelector(".evidence-toggle");
+    const status = actions.querySelector(".evidence-status");
+    const existing = actions.querySelector(".evidence-panel");
+    if (existing) {
+        existing.remove();
+        button.setAttribute("aria-expanded", "false");
+        return;
+    }
+
+    button.disabled = true;
+    status.textContent = "불러오는 중";
+    try {
+        const evidence = await requestJson(`/api/histories/${actions.dataset.historyId}/evidence`);
+        actions.insertAdjacentHTML("beforeend", renderEvidencePanel(evidence));
+        button.setAttribute("aria-expanded", "true");
+        status.textContent = "";
+    } catch (error) {
+        status.textContent = "실패";
+    } finally {
+        button.disabled = false;
+    }
+}
+
 function showRepresentativeQuestions() {
     appendUser("주요질문");
     const html = `
@@ -252,8 +320,15 @@ async function ask(question) {
         loading.querySelector(".bot-bubble").innerHTML = `
             ${renderAnswer(result.answer)}
             ${renderCitations(result.citations)}
+            ${renderEvidenceAction(result.historyId)}
             ${renderFeedbackActions(result.historyId)}
         `;
+        loading.querySelectorAll(".evidence-actions").forEach((actions) => {
+            actions.querySelector(".evidence-toggle").addEventListener("click", async () => {
+                await toggleEvidence(actions);
+                messages.scrollTop = messages.scrollHeight;
+            });
+        });
         loading.querySelectorAll(".feedback-actions button").forEach((button) => {
             button.addEventListener("click", async () => {
                 const actions = button.closest(".feedback-actions");
