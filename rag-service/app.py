@@ -4,6 +4,7 @@ from difflib import SequenceMatcher
 from functools import lru_cache
 import json
 import os
+from pathlib import Path
 import re
 import urllib.error
 import urllib.request
@@ -339,6 +340,7 @@ STRONG_INTENT_KEYWORDS = {
 
 app = FastAPI(title="Finance RAG Service")
 EMBEDDING_CACHE: Dict[Tuple[Any, ...], np.ndarray] = {}
+PRODUCT_SUMMARY_FILE = Path(__file__).with_name("product_summaries.json")
 
 
 def db_connection():
@@ -962,6 +964,15 @@ def product_alias_key_match(question_key: str, alias_key: str) -> bool:
     return typo_tolerant_key_match(question_key, alias_key)
 
 
+@lru_cache(maxsize=1)
+def product_summaries() -> Dict[str, Dict[str, Any]]:
+    try:
+        with PRODUCT_SUMMARY_FILE.open("r", encoding="utf-8") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return {}
+
+
 def none_if_nan(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -1002,6 +1013,10 @@ def build_direct_response(question: str) -> Optional[AskResponse]:
             status="DIRECT",
         )
 
+    summary_response = build_prepared_summary_response(question)
+    if summary_response is not None:
+        return summary_response
+
     if is_recommendation_question(question):
         documents = fetch_documents()
         answer, citations = build_recommendation_answer(question, documents)
@@ -1013,6 +1028,77 @@ def build_direct_response(question: str) -> Optional[AskResponse]:
         )
 
     return None
+
+
+def build_prepared_summary_response(question: str) -> Optional[AskResponse]:
+    documents = fetch_documents()
+    products = detect_products(question, documents)
+    summaries = product_summaries()
+    summary_products = [product for product in products if product in summaries]
+    if not summary_products or not is_product_summary_question(question):
+        return None
+
+    selected = explicit_summary_products_from_question(question, summary_products, summaries) or summary_products[:2]
+    answer = build_prepared_summary_answer(selected, summaries)
+    citations = build_recommendation_citations(documents, selected)
+    return AskResponse(
+        question=question,
+        answer=answer,
+        citations=[Citation(**citation) for citation in citations],
+        status="OK",
+    )
+
+
+def explicit_summary_products_from_question(
+    question: str,
+    products: List[str],
+    summaries: Dict[str, Dict[str, Any]],
+) -> List[str]:
+    question_key = normalize_key(question)
+    explicit_products: List[str] = []
+
+    for product in products:
+        if product in summaries and normalize_key(product) in question_key:
+            append_unique(explicit_products, product)
+
+    if explicit_products:
+        return explicit_products
+
+    for alias, product in sorted(PRODUCT_ALIAS_HINTS.items(), key=lambda item: len(normalize_key(item[0])), reverse=True):
+        alias_key = normalize_key(alias)
+        if product in products and product in summaries and alias_key and alias_key in question_key:
+            append_unique(explicit_products, product)
+
+    return explicit_products
+
+
+def is_product_summary_question(question: str) -> bool:
+    intents = detect_intents(question)
+    specific_intents = [intent for intent in intents if intent != "상품설명"]
+    if specific_intents:
+        return False
+
+    key = normalize_key(question)
+    summary_terms = ("설명", "요약", "정리", "뭐야", "어떤상품", "무슨상품", "알려줘", "알려")
+    if any(term in key for term in summary_terms):
+        return True
+
+    return bool(hinted_products_from_question(question))
+
+
+def build_prepared_summary_answer(products: List[str], summaries: Dict[str, Dict[str, Any]]) -> str:
+    blocks: List[str] = []
+    for product in products:
+        summary = summaries[product]
+        blocks.append(f"{product}은 {summary['summary']}")
+        blocks.append("")
+        blocks.append("핵심만 보면 이렇습니다.")
+        for bullet in summary.get("bullets", [])[:3]:
+            blocks.append(f"- {bullet}")
+        blocks.append("")
+
+    blocks.append("세부 가입대상, 금리, 우대조건은 가입 시점과 개인 조건에 따라 달라질 수 있습니다.")
+    return "\n".join(blocks).strip()
 
 
 def build_situation_response(question: str) -> Optional[AskResponse]:
