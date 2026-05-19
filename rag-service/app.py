@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 from functools import lru_cache
 import json
 import os
@@ -110,20 +111,50 @@ MILITARY_MARKERS = ("군인", "장병", "군복무", "복무", "입대", "전역
 
 PURPOSE_PRODUCT_HINTS = {
     "반려동물": ["펫 적금"],
+    "반려견": ["펫 적금"],
+    "반려묘": ["펫 적금"],
     "펫": ["펫 적금"],
     "강아지": ["펫 적금"],
     "고양이": ["펫 적금"],
+    "댕댕이": ["펫 적금"],
+    "냥이": ["펫 적금"],
     "환경": ["저탄소 실천 적금"],
+    "친환경": ["저탄소 실천 적금"],
+    "탄소": ["저탄소 실천 적금"],
+    "ESG": ["저탄소 실천 적금"],
     "저탄소": ["저탄소 실천 적금"],
     "야구": ["BNK가을야구적금"],
     "자이언츠": ["BNK가을야구적금"],
     "롯데자이언츠": ["BNK가을야구적금"],
+    "사직": ["BNK가을야구적금"],
+    "롯데": ["BNK가을야구적금"],
     "농구": ["BNK썸농구단 우승기원적금"],
+    "썸농구": ["BNK썸농구단 우승기원적금"],
     "주거래": ["Only One 주거래 우대적금"],
     "급여": ["Only One 주거래 우대적금"],
+    "월급": ["Only One 주거래 우대적금"],
     "군인": ["부산은행 장병내일준비적금"],
     "장병": ["부산은행 장병내일준비적금"],
+    "전역": ["부산은행 장병내일준비적금"],
+    "입대": ["부산은행 장병내일준비적금"],
+    "시니어": ["백세청춘 실버적금"],
+    "실버": ["백세청춘 실버적금"],
+    "어르신": ["백세청춘 실버적금"],
+    "고령": ["백세청춘 실버적금"],
+    "노인": ["백세청춘 실버적금"],
+    "아이": ["아이사랑 적금", "아기천사 적금"],
+    "자녀": ["아이사랑 적금", "아기천사 적금"],
+    "아기": ["아기천사 적금"],
+    "출산": ["아기천사 적금"],
+    "신생아": ["아기천사 적금"],
+    "부산": ["부산이라 좋다 Big적금", "부산청년기쁨두배통장", "부산형 내일채움공제적금"],
+    "부산청년": ["부산청년기쁨두배통장"],
+    "내일채움": ["부산형 내일채움공제적금"],
+    "자동차": ["챌린지적금 with 현대자동차"],
+    "현대자동차": ["챌린지적금 with 현대자동차"],
+    "현대차": ["챌린지적금 with 현대자동차"],
     "청약": ["주택청약종합저축", "청년 주택드림 청약통장"],
+    "청년": ["부산은행 청년도약계좌", "청년 주택드림 청약통장", "부산청년기쁨두배통장"],
 }
 
 
@@ -151,24 +182,132 @@ UNSUPPORTED_SCOPE_KEYWORDS = (
 
 
 PRODUCT_ALIAS_HINTS = {
+    "챌린지적금with현대자동차": "챌린지적금 with 현대자동차",
+    "챌린지적금wtih현대자동차": "챌린지적금 with 현대자동차",
+    "챌린지현대자동차": "챌린지적금 with 현대자동차",
+    "현대자동차적금": "챌린지적금 with 현대자동차",
+    "현대차적금": "챌린지적금 with 현대자동차",
+    "자동차적금": "챌린지적금 with 현대자동차",
+    "bnk썸농구단우승기원적금": "BNK썸농구단 우승기원적금",
+    "썸농구단우승기원적금": "BNK썸농구단 우승기원적금",
+    "썸농구적금": "BNK썸농구단 우승기원적금",
+    "농구단적금": "BNK썸농구단 우승기원적금",
+    "농구적금": "BNK썸농구단 우승기원적금",
     "청년도약계좌": "부산은행 청년도약계좌",
+    "청년도약": "부산은행 청년도약계좌",
+    "도약계좌": "부산은행 청년도약계좌",
+    "부산청년도약": "부산은행 청년도약계좌",
     "장병내일준비적금": "부산은행 장병내일준비적금",
+    "장병적금": "부산은행 장병내일준비적금",
+    "군인적금": "부산은행 장병내일준비적금",
+    "군복무적금": "부산은행 장병내일준비적금",
+    "전역적금": "부산은행 장병내일준비적금",
     "청년주택드림청약통장": "청년 주택드림 청약통장",
     "주택드림청약통장": "청년 주택드림 청약통장",
+    "청년주택드림": "청년 주택드림 청약통장",
+    "주택드림": "청년 주택드림 청약통장",
+    "청년청약통장": "청년 주택드림 청약통장",
     "주택청약종합저축": "주택청약종합저축",
+    "주택청약저축": "주택청약종합저축",
+    "주택청약": "주택청약종합저축",
+    "청약종합저축": "주택청약종합저축",
+    "청약통장": "주택청약종합저축",
     "내맘대로적금": "BNK내맘대로 적금",
     "bnk내맘대로": "BNK내맘대로 적금",
+    "내마음대로적금": "BNK내맘대로 적금",
+    "마음대로적금": "BNK내맘대로 적금",
+    "자유설계적금": "BNK내맘대로 적금",
     "onlyone주거래우대적금": "Only One 주거래 우대적금",
+    "onlyone적금": "Only One 주거래 우대적금",
+    "원주거래우대적금": "Only One 주거래 우대적금",
+    "주거래우대적금": "Only One 주거래 우대적금",
+    "주거래적금": "Only One 주거래 우대적금",
+    "급여적금": "Only One 주거래 우대적금",
     "너만솔로적금": "너만솔로 적금",
+    "너만솔로": "너만솔로 적금",
+    "솔로적금": "너만솔로 적금",
+    "미혼적금": "너만솔로 적금",
     "아기천사적금": "아기천사 적금",
+    "아기천사": "아기천사 적금",
+    "아기적금": "아기천사 적금",
+    "신생아적금": "아기천사 적금",
+    "출산적금": "아기천사 적금",
     "아이사랑적금": "아이사랑 적금",
+    "아이사랑": "아이사랑 적금",
+    "자녀적금": "아이사랑 적금",
+    "육아적금": "아이사랑 적금",
+    "어린이적금": "아이사랑 적금",
+    "부산이라좋다big적금": "부산이라 좋다 Big적금",
+    "부산이라좋다": "부산이라 좋다 Big적금",
+    "부산big적금": "부산이라 좋다 Big적금",
+    "big적금": "부산이라 좋다 Big적금",
+    "빅적금": "부산이라 좋다 Big적금",
+    "꿈이룸적금": "꿈이룸 적금",
+    "꿈이룸": "꿈이룸 적금",
+    "꿈적금": "꿈이룸 적금",
+    "목표적금": "꿈이룸 적금",
+    "부산형내일채움공제적금": "부산형 내일채움공제적금",
+    "부산형내일채움": "부산형 내일채움공제적금",
+    "내일채움공제적금": "부산형 내일채움공제적금",
+    "내일채움적금": "부산형 내일채움공제적금",
+    "채움공제적금": "부산형 내일채움공제적금",
     "저탄소실천적금": "저탄소 실천 적금",
+    "저탄소적금": "저탄소 실천 적금",
+    "탄소적금": "저탄소 실천 적금",
+    "환경적금": "저탄소 실천 적금",
+    "친환경적금": "저탄소 실천 적금",
+    "esg적금": "저탄소 실천 적금",
     "펫적금": "펫 적금",
+    "반려동물적금": "펫 적금",
+    "반려견적금": "펫 적금",
+    "반려묘적금": "펫 적금",
+    "강아지적금": "펫 적금",
+    "고양이적금": "펫 적금",
+    "댕댕이적금": "펫 적금",
+    "냥이적금": "펫 적금",
+    "개적금": "펫 적금",
+    "isa": "일임형 개인종합자산관리계좌(ISA)",
+    "개인종합자산관리계좌": "일임형 개인종합자산관리계좌(ISA)",
+    "종합자산관리계좌": "일임형 개인종합자산관리계좌(ISA)",
+    "일임형isa": "일임형 개인종합자산관리계좌(ISA)",
+    "bnk지역사랑자유적금": "BNK지역사랑자유적금",
+    "지역사랑자유적금": "BNK지역사랑자유적금",
+    "지역사랑적금": "BNK지역사랑자유적금",
+    "지역적금": "BNK지역사랑자유적금",
+    "bnk희망가꾸기적금": "BNK희망가꾸기적금",
+    "희망가꾸기적금": "BNK희망가꾸기적금",
+    "희망적금": "BNK희망가꾸기적금",
+    "백세청춘실버적금": "백세청춘 실버적금",
+    "백세청춘": "백세청춘 실버적금",
+    "백세적금": "백세청춘 실버적금",
+    "실버적금": "백세청춘 실버적금",
+    "시니어적금": "백세청춘 실버적금",
+    "어르신적금": "백세청춘 실버적금",
+    "노인적금": "백세청춘 실버적금",
+    "고령자적금": "백세청춘 실버적금",
+    "상호부금": "상호부금",
+    "부금": "상호부금",
+    "정기적금": "정기적금",
+    "기본적금": "정기적금",
+    "일반적금": "정기적금",
+    "가계우대정기적금": "가계우대정기적금",
+    "가계우대적금": "가계우대정기적금",
+    "가계적금": "가계우대정기적금",
     "가을야구적금": "BNK가을야구적금",
     "bnk가을야구": "BNK가을야구적금",
     "야구적금": "BNK가을야구적금",
     "자이언츠": "BNK가을야구적금",
     "롯데자이언츠": "BNK가을야구적금",
+    "롯데자이언츠적금": "BNK가을야구적금",
+    "롯데적금": "BNK가을야구적금",
+    "사직야구장적금": "BNK가을야구적금",
+    "사직적금": "BNK가을야구적금",
+    "가을야구": "BNK가을야구적금",
+    "부산청년기쁨두배통장": "부산청년기쁨두배통장",
+    "청년기쁨두배통장": "부산청년기쁨두배통장",
+    "기쁨두배통장": "부산청년기쁨두배통장",
+    "기쁨두배": "부산청년기쁨두배통장",
+    "두배통장": "부산청년기쁨두배통장",
 }
 
 
@@ -469,8 +608,8 @@ def detect_products(question: str, documents: pd.DataFrame) -> List[str]:
         if product_key and product_key in question_key:
             detected.append(product_name)
 
-    for alias, product_name in PRODUCT_ALIAS_HINTS.items():
-        if normalize_key(alias) in question_key and product_name not in detected:
+    for product_name in hinted_products_from_question(question):
+        if product_name not in detected:
             detected.append(product_name)
 
     return detected
@@ -737,6 +876,92 @@ def normalize_key(value: str) -> str:
     return re.sub(r"[^0-9A-Za-z가-힣]", "", value).lower()
 
 
+def typo_tolerant_key_match(query_key: str, candidate_key: str) -> bool:
+    if not query_key or not candidate_key:
+        return False
+    if candidate_key in query_key:
+        return True
+    if len(candidate_key) < 3:
+        return False
+
+    max_distance = 1 if len(candidate_key) <= 4 else 2
+    min_len = max(2, len(candidate_key) - max_distance)
+    max_len = len(candidate_key) + max_distance
+    threshold = 0.75 if len(candidate_key) <= 4 else 0.82
+
+    for start in range(len(query_key)):
+        for length in range(min_len, max_len + 1):
+            window = query_key[start:start + length]
+            if len(window) < min_len:
+                continue
+            if window[0] != candidate_key[0]:
+                continue
+            if levenshtein_distance_at_most(window, candidate_key, max_distance):
+                return True
+            if SequenceMatcher(None, window, candidate_key).ratio() >= threshold:
+                return True
+    return False
+
+
+def levenshtein_distance_at_most(left: str, right: str, max_distance: int) -> bool:
+    if abs(len(left) - len(right)) > max_distance:
+        return False
+
+    previous = list(range(len(right) + 1))
+    for left_index, left_char in enumerate(left, start=1):
+        current = [left_index]
+        row_min = current[0]
+        for right_index, right_char in enumerate(right, start=1):
+            cost = 0 if left_char == right_char else 1
+            value = min(
+                previous[right_index] + 1,
+                current[right_index - 1] + 1,
+                previous[right_index - 1] + cost,
+            )
+            current.append(value)
+            row_min = min(row_min, value)
+        if row_min > max_distance:
+            return False
+        previous = current
+    return previous[-1] <= max_distance
+
+
+def hinted_products_from_question(question: str) -> List[str]:
+    question_key = normalize_key(question)
+    alias_products: List[str] = []
+
+    for alias, product_name in sorted(PRODUCT_ALIAS_HINTS.items(), key=lambda item: len(normalize_key(item[0])), reverse=True):
+        if product_alias_key_match(question_key, normalize_key(alias)):
+            append_unique(alias_products, product_name)
+
+    if alias_products:
+        return alias_products
+
+    products: List[str] = []
+    for purpose, hinted_products in sorted(PURPOSE_PRODUCT_HINTS.items(), key=lambda item: len(normalize_key(item[0])), reverse=True):
+        if typo_tolerant_key_match(question_key, normalize_key(purpose)):
+            for product_name in hinted_products:
+                append_unique(products, product_name)
+
+    return products
+
+
+def product_alias_key_match(question_key: str, alias_key: str) -> bool:
+    if not alias_key:
+        return False
+    if alias_key in question_key:
+        return True
+
+    for suffix in ("적금", "통장", "계좌", "저축"):
+        if alias_key.endswith(suffix):
+            core = alias_key[:-len(suffix)]
+            if len(core) <= 2:
+                return core in question_key
+            return typo_tolerant_key_match(question_key, core) and typo_tolerant_key_match(question_key, alias_key)
+
+    return typo_tolerant_key_match(question_key, alias_key)
+
+
 def none_if_nan(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -847,7 +1072,7 @@ def is_senior_context(age_info: Dict[str, Optional[int]]) -> bool:
 
 def is_military_context_question(question: str) -> bool:
     key = normalize_key(question)
-    if not any(marker in key for marker in MILITARY_MARKERS):
+    if not any(typo_tolerant_key_match(key, normalize_key(marker)) for marker in MILITARY_MARKERS):
         return False
     if detect_intents(question):
         return False
@@ -1036,7 +1261,7 @@ def is_unsupported_scope_question(question: str) -> bool:
 
     supported_markers = ("예금", "적금", "청약", "금리", "이율")
     product_markers = tuple(normalize_key(alias) for alias in PRODUCT_ALIAS_HINTS)
-    return not any(marker in key for marker in supported_markers + product_markers)
+    return not any(marker in key for marker in supported_markers + product_markers) and not hinted_products_from_question(question)
 
 
 def has_searchable_finance_intent(question: str) -> bool:
@@ -1065,7 +1290,7 @@ def has_searchable_finance_intent(question: str) -> bool:
     )
     if any(marker in key for marker in finance_markers):
         return True
-    return any(normalize_key(alias) in key for alias in PRODUCT_ALIAS_HINTS)
+    return bool(hinted_products_from_question(question))
 
 
 def is_casual_or_non_finance_question(question: str) -> bool:
@@ -1361,11 +1586,11 @@ def recommendation_preferred_order(question: str, age_info: Dict[str, Optional[i
     order: List[str] = []
 
     for purpose, products in PURPOSE_PRODUCT_HINTS.items():
-        if normalize_key(purpose) in key:
+        if typo_tolerant_key_match(key, normalize_key(purpose)):
             for product in products:
                 append_unique(order, product)
 
-    if any(marker in key for marker in MILITARY_MARKERS):
+    if any(typo_tolerant_key_match(key, normalize_key(marker)) for marker in MILITARY_MARKERS):
         append_unique(order, "부산은행 장병내일준비적금")
 
     floor = age_floor(age_info)
