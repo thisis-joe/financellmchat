@@ -67,6 +67,23 @@ rag-service/.venv-rag/bin/python scripts/import_busanbank_installment_pdfs.py \
 mysql -ufinance -pfinance -e "select count(*) documents, count(distinct product_name) products from financial_documents where institution='BNK부산은행';" finance_rag
 ```
 
+상품 비교 지식표와 비교분석 문서를 다시 만들려면:
+
+```bash
+rag-service/.venv-rag-py312/bin/python scripts/build_installment_deposit_knowledge.py
+```
+
+이 명령은 PDF 텍스트를 다시 읽어 아래 산출물을 만든다.
+
+```text
+data/processed/installment_deposit_ocr/texts
+data/processed/installment_deposit_ocr/pages
+rag-service/product_knowledge.json
+docs/04-installment-deposit-comparison-insights.md
+```
+
+상담용 답변 정책과 대화 맥락 규칙은 별도 문서인 `docs/rag/deposit-chatbot-knowledge.md`에서 관리한다. 상품 지식표를 다시 만들었거나 추천 정책을 바꾸면 이 문서도 함께 검토한다.
+
 ## 4. 로컬 실행
 
 Spring Boot:
@@ -177,7 +194,7 @@ python3 scripts/check_representative_questions.py \
   --timeout 90
 ```
 
-대표 질문은 인사말, 무의미 입력, 종료 인사, 예금 종류, 상품 목록, 나이별 추천, 상품 설명, 상품별 혜택/서류/가입대상을 확인한다. 현재 기준 대표 질문 18개가 이 스크립트에 들어 있다.
+대표 질문은 인사말, 무의미 입력, 종료 인사, 예금 종류, 상품 목록, 나이별 추천, 상품 설명, 상품별 혜택/서류/가입대상, 우대금리, 기간, 소액 추천, 전체 목록, 후속 질문 맥락을 확인한다. 현재 기준 대표 질문 44개가 이 스크립트에 들어 있다.
 
 ## 7. Vercel과 Cloudflare 배포
 
@@ -306,3 +323,4 @@ python3 scripts/check_representative_questions.py --base-url https://financellmc
 - DNS only: Cloudflare가 트래픽을 중계하지 않고 DNS 응답만 하는 설정이다.
 - 1016 Origin DNS Error: Cloudflare가 원본 서버 DNS를 찾지 못할 때 나오는 오류다.
 - 대표 질문: 기능 수정 뒤에도 핵심 질문이 계속 잘 동작하는지 확인하는 회귀 테스트 질문이다.
+- 상품 비교 지식표: PDF에서 뽑은 가입대상, 기간, 금액, 금리, 우대조건을 구조화해 추천과 비교에 쓰는 JSON 데이터다.

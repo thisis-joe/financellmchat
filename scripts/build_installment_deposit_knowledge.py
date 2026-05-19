@@ -14,7 +14,7 @@ from import_busanbank_installment_pdfs import infer_product_name, normalize_text
 DEFAULT_PDF_DIR = Path("data/raw/busanbank/product-disclosure/deposit/installment")
 DEFAULT_PROCESSED_DIR = Path("data/processed/installment_deposit_ocr")
 DEFAULT_KNOWLEDGE_PATH = Path("rag-service/product_knowledge.json")
-DEFAULT_DOC_PATH = Path("docs/06-installment-deposit-comparison-insights.md")
+DEFAULT_DOC_PATH = Path("docs/04-installment-deposit-comparison-insights.md")
 
 COMMON_PROTECTION_NOTE = (
     "부산은행 예금상품 설명서 기준으로 예금자보호 대상인 상품은 원금과 소정의 이자를 합산해 "
@@ -316,7 +316,7 @@ def top_products(records: list[dict[str, Any]], key: str, reverse: bool = True, 
     return sorted(candidates, key=lambda record: record["derived"][key], reverse=reverse)[:limit]
 
 
-def build_insight_doc(records: list[dict[str, Any]]) -> str:
+def build_insight_doc(records: list[dict[str, Any]], source_pdf_count: int) -> str:
     product_records = [record for record in records if "약관" not in record["productName"] and "ISA" not in record["productName"]]
     short_term = [
         record for record in product_records
@@ -328,15 +328,16 @@ def build_insight_doc(records: list[dict[str, Any]]) -> str:
     ]
 
     lines = [
-        "# 적립식 예금 비교분석 및 인사이트",
+        "# 04. 적립식 예금 비교분석 및 인사이트",
         "",
         "이 문서는 부산은행 `예금상품 > 적립식예금` PDF 28개를 다시 텍스트 추출해, 챗봇이 추천·비교 질문에 답할 때 먼저 참고할 기준을 정리한 문서입니다.",
         "PDF 원문은 여전히 최종 근거이고, 이 문서는 사용자가 실제로 묻는 질문에 빠르게 답하기 위한 비교 지도입니다.",
         "",
         "## 1. 이번 재추출 결과",
         "",
-        f"- 분석 PDF: {len(records)}개",
-        f"- 상품성 비교 대상: {len(product_records)}개",
+        f"- 원본 PDF: {source_pdf_count}개",
+        f"- 병합 후 지식 레코드: {len(records)}개",
+        f"- 챗봇 상품성 비교 대상: {len(product_records)}개",
         "- 추출 방식: PyMuPDF 기반 페이지별 텍스트 추출. 현재 PDF들은 텍스트 레이어가 충분히 잡혀 OCR 대체 추출이 가능했습니다.",
         "- 산출물: `data/processed/installment_deposit_ocr/texts`, `data/processed/installment_deposit_ocr/pages`, `rag-service/product_knowledge.json`",
         "",
@@ -441,7 +442,8 @@ def build_insight_doc(records: list[dict[str, Any]]) -> str:
         "- 현재 문서는 부산은행 적립식예금 PDF만 기준으로 합니다. 거치식예금, 입출금자유예금, 타행 상품 비교는 아직 범위 밖입니다.",
         "- 금리 정보는 PDF 작성일 기준이므로 실제 가입 시점의 고시금리와 다를 수 있습니다.",
         "- 표 안의 일부 문구는 PDF 텍스트 레이어 추출 결과에 의존합니다. 이미지-only PDF가 추가되면 Tesseract 또는 별도 OCR 엔진을 붙여야 합니다.",
-        "- 다음 단계에서는 `product_knowledge.json`을 챗봇의 비교·추천 로직에 연결합니다.",
+        "- 현재 `product_knowledge.json`은 챗봇의 비교·추천 로직에 연결되어 있습니다.",
+        "- 다음 단계에서는 세후 이자 계산, 우대조건 비용 판단, 복합 자격 조건 추출 정확도를 높입니다.",
         "",
         "## 용어 메모",
         "",
@@ -465,7 +467,7 @@ def main() -> None:
     args.knowledge_path.parent.mkdir(parents=True, exist_ok=True)
     args.knowledge_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
     args.doc_path.parent.mkdir(parents=True, exist_ok=True)
-    args.doc_path.write_text(build_insight_doc(records), encoding="utf-8")
+    args.doc_path.write_text(build_insight_doc(records, len(pdf_paths)), encoding="utf-8")
 
     print(f"pdf_files={len(pdf_paths)}")
     print(f"knowledge={args.knowledge_path}")

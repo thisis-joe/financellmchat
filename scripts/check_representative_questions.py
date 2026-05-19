@@ -13,6 +13,7 @@ from typing import Any
 class Case:
     name: str
     question: str
+    history: list[dict[str, str]] = field(default_factory=list)
     answer_contains: list[str] = field(default_factory=list)
     answer_not_contains: list[str] = field(default_factory=list)
     status: str | None = None
@@ -275,6 +276,81 @@ CASES = [
         answer_contains=["기준에 따라", "BNK내맘대로 적금", "조건 부담"],
         answer_not_contains=["말씀은 이해했어요"],
     ),
+    Case(
+        name="37세 후속 ㄱㄱ는 나이 맥락으로 추천",
+        question="ㄱㄱ",
+        history=[{"role": "user", "content": "나 37세"}],
+        status="DIRECT",
+        answer_contains=["Only One 주거래 우대적금", "BNK내맘대로 적금"],
+        answer_not_contains=["구체적으로", "말씀은 이해했어요"],
+    ),
+    Case(
+        name="청년도약 후속 보호 질문은 직전 의도 유지",
+        question="아니 청년도약 그거",
+        history=[{"role": "user", "content": "예금자보호돼?"}],
+        status="DIRECT",
+        answer_contains=["청년도약계좌", "예금자보호"],
+        answer_not_contains=["추천", "먼저 볼 만합니다"],
+    ),
+    Case(
+        name="롯데팬 후속 가입조건은 가을야구적금 기준",
+        question="가입조건 알려줘",
+        history=[{"role": "user", "content": "롯데팬임"}],
+        status="DIRECT",
+        answer_contains=["BNK가을야구적금", "가입조건", "실명의 개인"],
+        citation_product_contains=["BNK가을야구적금"],
+        citation_product_not_contains=["펫 적금"],
+    ),
+    Case(
+        name="임산부는 전용상품 없음과 대안 안내",
+        question="임산부인데 추천가능?",
+        status="DIRECT",
+        answer_contains=["임산부 전용", "BNK내맘대로 적금", "아기천사 적금"],
+        answer_not_contains=["말씀은 이해했어요"],
+    ),
+    Case(
+        name="불만 표현은 먼저 사과",
+        question="왜 이런 기능도 없는거야?",
+        status="DIRECT",
+        answer_contains=["죄송", "확인할 수 있는 범위"],
+        allow_no_citations=True,
+    ),
+    Case(
+        name="고액 예치는 보호한도와 분산 우선",
+        question="10억넣어도됨?",
+        status="DIRECT",
+        answer_contains=["1억원", "분산", "보호"],
+        answer_not_contains=["말씀은 이해했어요"],
+        allow_no_citations=True,
+    ),
+    Case(
+        name="중도해지 손해 일반 질문",
+        question="손해가 큰가?",
+        status="DIRECT",
+        answer_contains=["중도해지", "약정이율보다 낮은"],
+        answer_not_contains=["말씀은 이해했어요"],
+    ),
+    Case(
+        name="결혼계획은 목적형 추천",
+        question="나 결혼계획있어",
+        status="DIRECT",
+        answer_contains=["결혼자금", "BNK내맘대로 적금", "정기적금"],
+        answer_not_contains=["말씀은 이해했어요"],
+    ),
+    Case(
+        name="여성 조건은 전용상품 없고 일반 후보 안내",
+        question="나 여성임",
+        status="DIRECT",
+        answer_contains=["여성 전용", "BNK내맘대로 적금"],
+        answer_not_contains=["말씀은 이해했어요"],
+    ),
+    Case(
+        name="만기일 임박은 다음 선택지 안내",
+        question="적금 상품 옮기려고해. 만기일 다돼가",
+        status="DIRECT",
+        answer_contains=["만기일", "새 상품", "BNK내맘대로 적금"],
+        answer_not_contains=["준법감시인"],
+    ),
 ]
 
 
@@ -285,9 +361,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def ask(base_url: str, question: str, timeout: float) -> dict[str, Any]:
+def ask(base_url: str, question: str, timeout: float, history: list[dict[str, str]] | None = None) -> dict[str, Any]:
     url = base_url.rstrip("/") + "/api/ask"
-    body = json.dumps({"question": question}, ensure_ascii=False).encode("utf-8")
+    body = json.dumps({"question": question, "history": history or []}, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
         url,
         data=body,
@@ -338,7 +414,7 @@ def main() -> int:
     failures = 0
     for index, case in enumerate(CASES, start=1):
         try:
-            payload = ask(args.base_url, case.question, args.timeout)
+            payload = ask(args.base_url, case.question, args.timeout, case.history)
             errors = validate(case, payload)
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
             errors = [f"request failed: {error}"]

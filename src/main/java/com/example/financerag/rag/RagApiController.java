@@ -23,7 +23,7 @@ public class RagApiController {
 
     @PostMapping("/ask")
     public RagAnswerResponse ask(@Valid @RequestBody RagQuestionRequest request) {
-        return ragService.ask(request.getQuestion());
+        return ragService.ask(request);
     }
 
     @GetMapping("/histories")

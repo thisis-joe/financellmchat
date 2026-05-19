@@ -7,6 +7,8 @@ const form = document.querySelector("#chat-form");
 const input = document.querySelector("#chat-input");
 const mobileMedia = window.matchMedia("(max-width: 640px)");
 let lastQuestionContext = "";
+const chatSessionId = getOrCreateSessionId();
+let chatHistory = [];
 
 const quickQuestions = {
     "예금": "청년 주택드림 청약통장의 가입대상과 우대이율은 무엇을 확인해야 하나요?",
@@ -68,6 +70,27 @@ function updateChatViewport() {
 
 function scrollMessagesToBottom() {
     messages.scrollTop = messages.scrollHeight;
+}
+
+function getOrCreateSessionId() {
+    const storageKey = "finance-rag-chat-session-id";
+    const existing = window.localStorage.getItem(storageKey);
+    if (existing) {
+        return existing;
+    }
+    const next = window.crypto?.randomUUID
+        ? window.crypto.randomUUID()
+        : `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    window.localStorage.setItem(storageKey, next);
+    return next;
+}
+
+function rememberChatTurn(role, content) {
+    if (!content) {
+        return;
+    }
+    chatHistory.push({role, content: String(content).slice(0, 1200)});
+    chatHistory = chatHistory.slice(-12);
 }
 
 function focusChatInput() {
@@ -398,14 +421,19 @@ function welcome() {
     });
 }
 
-async function ask(question, requestQuestion = question) {
+async function ask(question) {
     appendUser(question);
     const loading = appendBot(`<span class="loading">답변을 찾고 있습니다...</span>`);
+    const requestHistory = chatHistory.slice(-10);
 
     try {
         const result = await requestJson("/api/ask", {
             method: "POST",
-            body: JSON.stringify({question: requestQuestion})
+            body: JSON.stringify({
+                question,
+                sessionId: chatSessionId,
+                history: requestHistory
+            })
         });
         loading.querySelector(".bot-bubble").innerHTML = `
             ${renderAnswer(result.answer)}
@@ -413,6 +441,8 @@ async function ask(question, requestQuestion = question) {
             ${renderEvidenceAction(result.historyId, result.citations)}
             ${renderFeedbackActions(result.historyId)}
         `;
+        rememberChatTurn("user", question);
+        rememberChatTurn("assistant", result.answer);
         loading.querySelectorAll(".evidence-actions").forEach((actions) => {
             actions.querySelector(".evidence-toggle").addEventListener("click", async () => {
                 await toggleEvidence(actions);
@@ -490,7 +520,6 @@ form.addEventListener("submit", async (event) => {
         return;
     }
     input.value = "";
-    const requestQuestion = resolveQuestionForRequest(question);
     rememberQuestionContext(question);
-    await ask(question, requestQuestion);
+    await ask(question);
 });

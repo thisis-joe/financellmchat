@@ -27,12 +27,13 @@ public class RagClient {
         this.objectMapper = objectMapper;
     }
 
-    public RagAnswerResponse ask(String question) {
+    public RagAnswerResponse ask(RagQuestionRequest request) {
+        String question = request.getQuestion();
         try {
             RagAnswerResponse response = restClient.post()
                     .uri("/ask")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(toJson(question))
+                    .body(toJson(request))
                     .retrieve()
                     .body(RagAnswerResponse.class);
 
@@ -47,9 +48,13 @@ public class RagClient {
         return fallback(question);
     }
 
-    private String toJson(String question) {
+    private String toJson(RagQuestionRequest request) {
         try {
-            return objectMapper.writeValueAsString(new RagApiRequest(question));
+            return objectMapper.writeValueAsString(new RagApiRequest(
+                    request.getQuestion(),
+                    request.getSessionId(),
+                    request.getHistory()
+            ));
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("질문을 JSON으로 변환할 수 없습니다.", e);
         }

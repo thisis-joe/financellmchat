@@ -33,8 +33,9 @@ public class RagService {
     }
 
     @Transactional
-    public RagAnswerResponse ask(String question) {
-        RagAnswerResponse response = ragClient.ask(question);
+    public RagAnswerResponse ask(RagQuestionRequest request) {
+        String question = request.getQuestion();
+        RagAnswerResponse response = ragClient.ask(request);
         QueryHistory history = historyRepository.save(new QueryHistory(
                 question,
                 response.answer(),

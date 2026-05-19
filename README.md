@@ -7,7 +7,7 @@
 - Spring Boot MVC: 정적 챗봇 화면, RAG REST API, 질문 기록 저장
 - Spring Data JPA: 질문 이력과 답변 피드백 저장
 - MySQL: 상품설명 자료와 질문 기록 저장
-- Python FastAPI: 질문 유형 분류, MySQL 문서 기반 하이브리드 검색, LangGraph 워크플로, Gemma MLX 답변 생성
+- Python FastAPI: 대화 맥락 재해석, 질문 유형 분류, MySQL 문서 기반 하이브리드 검색, LangGraph 워크플로, Gemma MLX 답변 생성
 - Frontend: `index.html`, `style.css`, `app.js` 정적 파일 3개
 - Deployment: Vercel 정적 프론트 + Cloudflare Tunnel API 연결
 
@@ -59,15 +59,11 @@ Vercel에서 404가 뜨면 프로젝트가 정적 파일 폴더를 output으로 
 - `docs/00-project-guide.md`: 전체 개요와 읽는 순서
 - `docs/01-runbook.md`: 실행, 빌드, API 확인
 - `docs/02-architecture-and-rag.md`: 도메인, Spring, RAG, LangGraph, embedding, Gemma, LoRA/QLoRA
-- `docs/03-phase-1-thinking.md`: 1차 사고 흐름
-- `docs/04-phase-2-thinking.md`: 2차 사고 흐름
-- `docs/05-phase-3-thinking.md`: 3차 사고 흐름
-- `docs/06-phase-4-thinking.md`: 4차 사고 흐름
-- `docs/07-phase-5-thinking.md`: 5차 배포 사고 흐름
-- `docs/08-phase-6-thinking.md`: 6차 답변 품질 사고 흐름
-- `docs/09-custom-domain-https.md`: `bnkaichat.xyz` 커스텀 도메인과 HTTPS 적용
-- `docs/10-lora-qlora-dataset.md`: LoRA/QLoRA 학습 데이터셋 포맷
-- `docs/11-phase-7-thinking.md`: 답변근거 API와 학습 데이터 설계 사고 흐름
+- `docs/03-phase-thinking.md`: 1차부터 현재까지의 문제 발견과 해결 흐름
+- `docs/04-installment-deposit-comparison-insights.md`: 적립식예금 비교분석과 인사이트
+- `docs/rag/deposit-chatbot-knowledge.md`: 상담용 상품 지식, 추천 규칙, 대화 맥락 처리 규칙
+- `docs/05-lora-qlora-dataset.md`: LoRA/QLoRA 학습 데이터셋 포맷
+- `docs/06-interview-qa.md`: 면접 예상 질문과 답변
 
 ## 적립식예금 PDF 적재
 
