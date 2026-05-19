@@ -341,6 +341,7 @@ STRONG_INTENT_KEYWORDS = {
 app = FastAPI(title="Finance RAG Service")
 EMBEDDING_CACHE: Dict[Tuple[Any, ...], np.ndarray] = {}
 PRODUCT_SUMMARY_FILE = Path(__file__).with_name("product_summaries.json")
+PRODUCT_KNOWLEDGE_FILE = Path(__file__).with_name("product_knowledge.json")
 
 
 def db_connection():
@@ -973,6 +974,16 @@ def product_summaries() -> Dict[str, Dict[str, Any]]:
         return {}
 
 
+@lru_cache(maxsize=1)
+def product_knowledge() -> List[Dict[str, Any]]:
+    try:
+        with PRODUCT_KNOWLEDGE_FILE.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+            return data if isinstance(data, list) else []
+    except FileNotFoundError:
+        return []
+
+
 def none_if_nan(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -1003,6 +1014,10 @@ def build_direct_response(question: str) -> Optional[AskResponse]:
             citations=[],
             status="DIRECT",
         )
+
+    knowledge_response = build_product_knowledge_response(question)
+    if knowledge_response is not None:
+        return knowledge_response
 
     if is_deposit_catalog_question(question):
         documents = fetch_documents()
@@ -1099,6 +1114,326 @@ def build_prepared_summary_answer(products: List[str], summaries: Dict[str, Dict
 
     blocks.append("세부 가입대상, 금리, 우대조건은 가입 시점과 개인 조건에 따라 달라질 수 있습니다.")
     return "\n".join(blocks).strip()
+
+
+def build_product_knowledge_response(question: str) -> Optional[AskResponse]:
+    records = comparable_product_knowledge()
+    if not records:
+        return None
+
+    key = normalize_key(question)
+    documents: Optional[pd.DataFrame] = None
+
+    if is_full_product_list_question(question):
+        documents = fetch_documents()
+        products = [record["productName"] for record in records]
+        answer = build_full_product_list_answer(products)
+        citations = build_recommendation_citations(documents, products[:3])
+        return AskResponse(question=question, answer=answer, citations=[Citation(**citation) for citation in citations], status="DIRECT")
+
+    if any(term in key for term in ("예금자보호", "보호한도", "1억원", "1억", "안전")):
+        return AskResponse(question=question, answer=build_deposit_protection_answer(), citations=[], status="DIRECT")
+
+    if any(term in key for term in ("세후", "세전", "실수령", "실제수령", "이자얼마", "얼마받")) and extract_amount_won_from_question(question):
+        return AskResponse(question=question, answer=build_interest_estimate_answer(question, records), citations=[], status="DIRECT")
+
+    selected: List[Dict[str, Any]] = []
+    answer: Optional[str] = None
+
+    if any(term in key for term in ("우대금리제일높", "우대금리높", "최고금리", "혜택제일많", "혜택많", "우대많")):
+        selected = top_knowledge_products(records, "maxPreferentialRatePoint", limit=requested_count(question, 5))
+        answer = build_ranked_products_answer("우대금리와 혜택 조건 기준으로 보면", selected, "maxPreferentialRatePoint")
+    elif any(term in key for term in ("기본금리높", "기본금리제일", "금리높은순")):
+        selected = top_knowledge_products(records, "maxBaseRate", limit=requested_count(question, 5))
+        answer = build_ranked_products_answer("기본금리 추출값 기준으로 보면", selected, "maxBaseRate")
+    elif any(term in key for term in ("6개월", "육개월")):
+        selected = filter_products_by_period(records, 6, key)[: requested_count(question, 5)]
+        answer = build_period_answer(6, selected)
+    elif any(term in key for term in ("2개월", "두달", "2달")):
+        selected = filter_products_by_period(records, 2, key)[: requested_count(question, 5)]
+        answer = build_period_answer(2, selected)
+    elif any(term in key for term in ("소규모", "소액", "적게", "작게", "부담없이", "부담적")):
+        selected = sorted(records, key=lambda record: knowledge_number(record, "minAmountWon", default=10**12))[: requested_count(question, 5)]
+        answer = build_low_amount_answer(selected)
+    elif any(term in key for term in ("제일좋", "가장좋", "뭐가좋", "무엇이좋")):
+        selected = choose_general_best_products(records, requested_count(question, 4))
+        answer = build_best_by_criteria_answer(selected)
+    elif is_recommendation_question(question) and (detect_age_info(question).get("age") is not None or detect_age_info(question).get("age_group") is not None or any(term in key for term in ("과장", "직장인", "회사원", "월급", "급여"))):
+        selected = choose_knowledge_recommendations(question, records, requested_count(question, 3))
+        answer = build_knowledge_recommendation_answer(question, selected)
+    elif is_recommendation_question(question):
+        selected = choose_general_best_products(records, requested_count(question, 3))
+        answer = build_knowledge_recommendation_answer(question, selected)
+
+    if answer is None:
+        return None
+
+    if documents is None:
+        documents = fetch_documents()
+    citations = build_recommendation_citations(documents, [record["productName"] for record in selected[:3]])
+    return AskResponse(question=question, answer=answer, citations=[Citation(**citation) for citation in citations], status="DIRECT")
+
+
+def comparable_product_knowledge() -> List[Dict[str, Any]]:
+    records: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for record in product_knowledge():
+        product_name = str(record.get("productName") or "")
+        if not product_name or product_name in seen:
+            continue
+        if any(keyword in product_name for keyword in NON_RECOMMENDABLE_PRODUCT_KEYWORDS):
+            continue
+        if "약관" in product_name:
+            continue
+        records.append(record)
+        seen.add(product_name)
+    return records
+
+
+def is_full_product_list_question(question: str) -> bool:
+    key = normalize_key(question)
+    return any(term in key for term in ("종류있는대로", "있는대로다", "전부", "전체목록", "상품목록", "다말", "다알려", "목록다", "적립식예금상품목록"))
+
+
+def build_full_product_list_answer(products: List[str]) -> str:
+    lines = ["현재 PDF로 확인한 부산은행 적립식예금 상품은 아래와 같습니다.", ""]
+    for index, product in enumerate(products, start=1):
+        lines.append(f"{index}. {product}")
+    lines.append("")
+    lines.append("특정 조건으로 줄이고 싶으면 `6개월 가능한 것`, `소액으로 시작`, `60대 추천`, `우대금리 높은 순서`처럼 물어보면 됩니다.")
+    return "\n".join(lines)
+
+
+def build_deposit_protection_answer() -> str:
+    return (
+        "부산은행 적립식예금 설명서 기준으로 예금자보호 대상 상품은 원금과 소정의 이자를 합쳐 "
+        "1인당 1억원까지 보호됩니다.\n\n"
+        "다만 이 한도는 상품별이 아니라 같은 부산은행의 다른 보호상품과 합산해서 봐야 합니다. "
+        "이미 부산은행에 예금이 많다면 총액 기준으로 1억원을 넘는지 먼저 확인하고, 넘는 금액은 다른 금융기관으로 분산하는 쪽이 안전합니다."
+    )
+
+
+def requested_count(question: str, default: int) -> int:
+    match = re.search(r"(\d{1,2})\s*개", question)
+    if match:
+        return max(1, min(int(match.group(1)), 20))
+    return default
+
+
+def knowledge_number(record: Dict[str, Any], field: str, default: float = 0.0) -> float:
+    value = (record.get("derived") or {}).get(field)
+    if value is None:
+        return default
+    return float(value)
+
+
+def top_knowledge_products(records: List[Dict[str, Any]], field: str, limit: int = 5) -> List[Dict[str, Any]]:
+    candidates = [record for record in records if (record.get("derived") or {}).get(field) is not None]
+    return sorted(candidates, key=lambda record: knowledge_number(record, field), reverse=True)[:limit]
+
+
+def filter_products_by_period(records: List[Dict[str, Any]], months: int, question_key: str = "") -> List[Dict[str, Any]]:
+    filtered: List[Dict[str, Any]] = []
+    for record in records:
+        if is_special_record_unrelated(record, question_key):
+            continue
+        derived = record.get("derived") or {}
+        minimum = derived.get("periodMinMonths")
+        maximum = derived.get("periodMaxMonths")
+        if minimum is None or maximum is None:
+            continue
+        if int(minimum) <= months <= int(maximum):
+            filtered.append(record)
+    return sorted(filtered, key=lambda record: (knowledge_number(record, "minAmountWon", 10**12), record["productName"]))
+
+
+def is_special_record_unrelated(record: Dict[str, Any], question_key: str) -> bool:
+    tags = "".join(record.get("tags") or [])
+    product_name = record.get("productName") or ""
+    special_markers = {
+        "군인": ("군인", "장병", "입대", "전역", "복무"),
+        "장병": ("군인", "장병", "입대", "전역", "복무"),
+        "청년": ("청년", "20대", "이십대", "청약", "주거"),
+        "청약": ("청약", "주택", "주거"),
+        "아동": ("아이", "아동", "자녀", "어린이", "미성년"),
+        "정책성": ("청년", "지원", "정책", "부산", "근로자"),
+    }
+    haystack = tags + product_name
+    for marker, allowed_terms in special_markers.items():
+        if marker in haystack and not any(term in question_key for term in allowed_terms):
+            return True
+    return False
+
+
+def build_ranked_products_answer(prefix: str, records: List[Dict[str, Any]], field: str) -> str:
+    if not records:
+        return "현재 적립식예금 비교 데이터에서 해당 기준으로 정렬할 수 있는 상품을 찾지 못했습니다."
+    unit = "%p" if field == "maxPreferentialRatePoint" else "%"
+    lines = [f"{prefix} 아래 상품들을 먼저 볼 만합니다.", ""]
+    for index, record in enumerate(records, start=1):
+        value = knowledge_number(record, field)
+        lines.append(f"{index}. {record['productName']}: 추출값 {value:g}{unit}, 우대 난이도 {record.get('derived', {}).get('preferenceDifficulty', '-')}")
+    lines.extend(["", "최고금리나 혜택은 우대조건을 만족해야 받을 수 있는 경우가 많아서, 실제로 맞출 수 있는 조건인지 함께 봐야 합니다."])
+    return "\n".join(lines)
+
+
+def build_period_answer(months: int, records: List[Dict[str, Any]]) -> str:
+    if not records:
+        return (
+            f"현재 부산은행 적립식예금 PDF 기준으로는 {months}개월만 명확히 가입 가능한 상품을 찾기 어렵습니다.\n\n"
+            "짧게 돈을 맡길 목적이라면 적립식예금보다 거치식예금이나 입출금자유/파킹 성격 상품을 봐야 할 수 있는데, 그 자료는 아직 넣지 않았습니다."
+        )
+    lines = [f"{months}개월 조건으로는 아래 상품들을 먼저 확인할 만합니다.", ""]
+    for index, record in enumerate(records, start=1):
+        lines.append(f"{index}. {record['productName']}: {record.get('period') or '기간 정보 확인 필요'}")
+    lines.append("")
+    lines.append("단기 상품은 만기 전에 쓸 돈인지가 중요합니다. 중도해지 가능성이 있으면 금리보다 기간이 맞는지를 먼저 보세요.")
+    return "\n".join(lines)
+
+
+def build_low_amount_answer(records: List[Dict[str, Any]]) -> str:
+    lines = ["처음 넣어야 하는 금액 부담을 낮게 보고 고르면 아래 상품부터 확인하는 게 좋습니다.", ""]
+    for index, record in enumerate(records, start=1):
+        amount = record.get("amount") or "가입금액 정보 확인 필요"
+        lines.append(f"{index}. {record['productName']}: {amount}")
+    lines.append("")
+    lines.append("스포츠·이벤트형 상품은 재미는 있지만 조건이 붙을 수 있어서, 부담 없이 시작하려면 일반형 상품도 같이 비교하는 편이 좋습니다.")
+    return "\n".join(lines)
+
+
+def choose_general_best_products(records: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
+    preferred = ["BNK내맘대로 적금", "정기적금", "Only One 주거래 우대적금", "저탄소 실천 적금", "펫 적금"]
+    by_name = {record["productName"]: record for record in records}
+    selected = [by_name[name] for name in preferred if name in by_name]
+    return selected[:limit]
+
+
+def build_best_by_criteria_answer(records: List[Dict[str, Any]]) -> str:
+    lines = [
+        "제일 좋은 적금은 기준에 따라 달라집니다. 조건을 따지지 않고 하나만 먼저 보라면 `BNK내맘대로 적금`을 기준점으로 보겠습니다.",
+        "",
+        "기준별로 보면 이렇게 나눠볼 수 있어요.",
+        "- 조건 부담이 낮은 기본형: BNK내맘대로 적금, 정기적금",
+        "- 급여이체나 주거래 실적이 있는 직장인: Only One 주거래 우대적금",
+        "- 소액·단기 기준: 정기적금, BNK내맘대로 적금",
+        "- 특정 혜택 목적: 펫 적금, BNK가을야구적금, 저탄소 실천 적금",
+        "",
+        "금리만 보고 고르기보다 돈을 언제 쓸지, 우대조건을 실제로 맞출 수 있는지, 중도해지 가능성이 있는지를 먼저 보는 게 좋습니다.",
+    ]
+    if records:
+        lines.extend(["", "우선 비교 후보는 이쪽입니다."])
+        for index, record in enumerate(records, start=1):
+            lines.append(f"{index}. {record['productName']}")
+    return "\n".join(lines)
+
+
+def choose_knowledge_recommendations(question: str, records: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
+    age_info = detect_age_info(question)
+    key = normalize_key(question)
+    scored: List[Tuple[float, Dict[str, Any]]] = []
+    for record in records:
+        if is_record_age_incompatible(record, age_info):
+            continue
+        tags = "".join(record.get("tags") or []) + record["productName"]
+        score = 0.0
+        if is_under_19_request(age_info):
+            if record["productName"] in TEEN_RECOMMENDATIONS:
+                score += max(0, 8 - TEEN_RECOMMENDATIONS.index(record["productName"]))
+        elif age_floor(age_info) is not None and age_floor(age_info) >= 60:
+            if "실버" in tags or "중장년" in tags:
+                score += 8
+            if record["productName"] in ("BNK내맘대로 적금", "정기적금"):
+                score += 5
+        elif age_floor(age_info) is not None and age_floor(age_info) >= 30:
+            if any(term in key for term in ("과장", "직장인", "회사원", "월급", "급여")) and record["productName"] == "Only One 주거래 우대적금":
+                score += 9
+            if record["productName"] in ("BNK내맘대로 적금", "정기적금"):
+                score += 6
+        elif age_floor(age_info) is not None and age_floor(age_info) < 30:
+            if "청년" in tags:
+                score += 5
+            if record["productName"] in ("BNK내맘대로 적금", "정기적금"):
+                score += 5.5
+        if score > 0:
+            scored.append((score, record))
+    if not scored:
+        return choose_general_best_products(records, limit)
+    scored.sort(key=lambda item: (-item[0], item[1]["productName"]))
+    return [record for _, record in scored[:limit]]
+
+
+def is_record_age_incompatible(record: Dict[str, Any], age_info: Dict[str, Optional[int]]) -> bool:
+    start_age, end_age, _ = age_range(age_info)
+    if start_age is None or end_age is None:
+        return False
+    product_name = str(record.get("productName") or "")
+    if end_age < 19 and "청년" in product_name:
+        return True
+    if start_age >= 40 and any(keyword in product_name for keyword in YOUTH_OR_SPECIAL_PURPOSE_KEYWORDS):
+        return True
+    derived = record.get("derived") or {}
+    min_age = derived.get("ageMin")
+    max_age = derived.get("ageMax")
+    if min_age is not None and start_age < int(min_age):
+        return True
+    if max_age is not None and end_age > int(max_age):
+        return True
+    return False
+
+
+def build_knowledge_recommendation_answer(question: str, records: List[Dict[str, Any]]) -> str:
+    if not records:
+        return "현재 조건에 맞춰 추천할 상품을 고르기 어렵습니다. 나이, 목적, 기간 중 하나를 더 알려주면 다시 좁혀볼게요."
+    lines = ["말씀하신 조건이면 아래 상품을 먼저 볼 만합니다.", ""]
+    for index, record in enumerate(records, start=1):
+        reason = knowledge_recommendation_reason(record)
+        lines.append(f"{index}. {record['productName']}: {reason}")
+    lines.append("")
+    lines.append("실제 가입 가능 여부와 우대금리는 가입 시점 고시, 개인 조건, 은행 확인 결과에 따라 달라질 수 있습니다.")
+    return "\n".join(lines)
+
+
+def knowledge_recommendation_reason(record: Dict[str, Any]) -> str:
+    tags = record.get("tags") or []
+    if "직장인" in tags or "급여" in tags:
+        return "급여이체나 주거래 실적을 활용할 수 있는 직장인에게 먼저 비교할 만합니다."
+    if "실버" in tags:
+        return "만 56세 이상 등 중장년 조건에 직접 맞는 상품입니다."
+    if "일반" in tags:
+        return "특정 대상 전용 조건이 강하지 않아 기본 비교 후보로 보기 좋습니다."
+    if "청년" in tags:
+        return "청년 조건에 맞는다면 정책성 혜택을 확인할 수 있습니다."
+    return "질문 조건과 상품 태그가 맞아 후보로 골랐습니다."
+
+
+def extract_amount_won_from_question(question: str) -> Optional[int]:
+    values: List[int] = []
+    units = {"원": 1, "만원": 10_000, "천만원": 10_000_000, "억": 100_000_000, "억원": 100_000_000}
+    for number, unit in re.findall(r"(\d+(?:,\d{3})*)\s*(억원|천만원|만원|원|억)", question):
+        values.append(int(number.replace(",", "")) * units[unit])
+    return max(values) if values else None
+
+
+def build_interest_estimate_answer(question: str, records: List[Dict[str, Any]]) -> str:
+    amount = extract_amount_won_from_question(question)
+    months_match = re.search(r"(\d{1,2})\s*(개월|년)", question)
+    months = 12
+    if months_match:
+        months = int(months_match.group(1)) * (12 if months_match.group(2) == "년" else 1)
+    candidates = filter_products_by_period(records, months, normalize_key(question)) or choose_general_best_products(records, 1)
+    product = candidates[0]
+    rate = knowledge_number(product, "maxBaseRate", 0.0)
+    gross_interest = int((amount or 0) * (rate / 100) * (months / 12) * ((months + 1) / (2 * months)))
+    net_interest = int(gross_interest * (1 - 0.154))
+    total = (amount or 0) + net_interest
+    return (
+        f"월 {amount:,}원을 {months}개월 동안 매월 납입하고, 추출된 기본금리 연 {rate:g}%를 단순 적용한다고 가정하면 대략 이렇습니다.\n\n"
+        f"- 세전 예상 이자: 약 {gross_interest:,}원\n"
+        f"- 세후 예상 이자: 약 {net_interest:,}원\n"
+        f"- 세후 예상 수령액: 약 {total:,}원\n\n"
+        "적금은 납입한 돈마다 실제 예치 기간이 달라서 예금처럼 단순 계산하면 안 됩니다. "
+        "위 계산은 매월 같은 금액을 넣는 단순 추정치이고, 실제 금리는 가입 시점 고시와 우대조건 충족 여부에 따라 달라집니다."
+    )
 
 
 def build_situation_response(question: str) -> Optional[AskResponse]:
@@ -1371,6 +1706,14 @@ def has_searchable_finance_intent(question: str) -> bool:
         "비과세",
         "소득공제",
         "추천",
+        "제일좋",
+        "가장좋",
+        "뭐가좋",
+        "무엇이좋",
+        "혜택",
+        "세후",
+        "세전",
+        "수령액",
         "목록",
         "종류",
     )
