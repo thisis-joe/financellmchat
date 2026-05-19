@@ -89,6 +89,19 @@ HF_MAX_NEW_TOKENS=260 \
 uvicorn app:app --reload --port 8000
 ```
 
+GPT API로 더 자연스러운 답변 생성을 확인하려면 API 키를 설정하고 생성 모드만 바꾼다. 기본 로컬 시연은 위의 `mlx` 모드로 충분하며, OpenAI 비용이 발생할 수 있으므로 필요할 때만 켠다.
+
+```bash
+cd rag-service
+source .venv-rag-py312/bin/activate
+export OPENAI_API_KEY="발급받은_API_키"
+RAG_RETRIEVAL_MODE=hybrid \
+RAG_GENERATION_MODE=openai \
+OPENAI_MODEL=gpt-5.1 \
+OPENAI_MAX_OUTPUT_TOKENS=450 \
+uvicorn app:app --reload --port 8000
+```
+
 LLM 없이 검색과 fallback만 확인하려면:
 
 ```bash

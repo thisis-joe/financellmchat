@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import json
 import os
 import re
+import urllib.error
+import urllib.request
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 import numpy as np
@@ -1466,6 +1469,12 @@ def generate_answer(state: RagState) -> RagState:
         except Exception as error:
             return {"answer": build_template_answer(state, str(error)), "status": "LLM_FALLBACK"}
 
+    if generation_mode == "openai":
+        try:
+            return {"answer": finalize_generated_answer(generate_openai_answer(state), state), "status": "OK"}
+        except Exception as error:
+            return {"answer": build_template_answer(state, str(error)), "status": "LLM_FALLBACK"}
+
     return {"answer": build_template_answer(state), "status": "OK"}
 
 
@@ -1698,6 +1707,58 @@ def build_messages(state: RagState) -> List[Dict[str, str]]:
 def build_plain_prompt(state: RagState) -> str:
     messages = build_messages(state)
     return "\n\n".join(f"{message['role']}:\n{message['content']}" for message in messages)
+
+
+def generate_openai_answer(state: RagState) -> str:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY가 설정되지 않았습니다.")
+
+    messages = build_messages(state)
+    model = os.getenv("OPENAI_MODEL", "gpt-5.1")
+    max_output_tokens = int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "450"))
+    timeout = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "45"))
+
+    payload = {
+        "model": model,
+        "instructions": messages[0]["content"],
+        "input": messages[1]["content"],
+        "max_output_tokens": max_output_tokens,
+    }
+    request = urllib.request.Request(
+        "https://api.openai.com/v1/responses",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"OpenAI API 호출 실패: HTTP {error.code} {detail[:300]}") from error
+
+    answer = extract_openai_output_text(body)
+    if not answer:
+        raise RuntimeError("OpenAI API가 빈 답변을 반환했습니다.")
+    return answer
+
+
+def extract_openai_output_text(payload: Dict[str, Any]) -> str:
+    output_text = payload.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+
+    texts: List[str] = []
+    for item in payload.get("output", []) or []:
+        for content in item.get("content", []) or []:
+            if content.get("type") in {"output_text", "text"} and content.get("text"):
+                texts.append(str(content["text"]))
+    return "\n".join(texts).strip()
 
 
 def build_mlx_prompt(state: RagState) -> str:
