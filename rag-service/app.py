@@ -1452,11 +1452,8 @@ def build_product_knowledge_response(question: str) -> Optional[AskResponse]:
     elif any(term in key for term in ("제일좋", "가장좋", "뭐가좋", "무엇이좋")):
         selected = choose_general_best_products(records, requested_count(question, 4))
         answer = build_best_by_criteria_answer(selected)
-    elif is_recommendation_question(question) and (detect_age_info(question).get("age") is not None or detect_age_info(question).get("age_group") is not None or any(term in key for term in ("과장", "직장인", "회사원", "월급", "급여"))):
-        selected = choose_knowledge_recommendations(question, records, requested_count(question, 4))
-        answer = build_knowledge_recommendation_answer(question, selected)
     elif is_recommendation_question(question):
-        selected = choose_general_best_products(records, requested_count(question, 3))
+        selected = choose_knowledge_recommendations(question, records, requested_count(question, 4))
         answer = build_knowledge_recommendation_answer(question, selected)
 
     if answer is None:
@@ -1833,6 +1830,13 @@ def recommendation_priority_names(question: str, age_info: Dict[str, Optional[in
     if any(term in key for term in ("소규모", "소액", "적게", "작게", "부담없이", "부담적", "작은금액")):
         for name in LOW_AMOUNT_RECOMMENDATIONS:
             append_unique(names, name)
+
+    if any(term in key for term in ("청년", "청년층", "청년대상", "사회초년", "사회초년생", "대학생", "취준생")):
+        for name in YOUTH_RECOMMENDATIONS:
+            append_unique(names, name)
+
+    if any(term in key for term in MILITARY_MARKERS):
+        append_unique(names, "부산은행 장병내일준비적금")
 
     floor = age_floor(age_info)
     if is_under_19_request(age_info):

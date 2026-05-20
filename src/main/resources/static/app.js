@@ -35,6 +35,16 @@ const representativeQuestions = [
 ];
 
 const followUpMarkers = ["찾아", "찾아줘", "추천", "골라", "알려줘", "설명해줘", "해줘", "응", "그래"];
+const explicitContextTerms = [
+    "청년", "청년층", "청년대상", "사회초년", "사회초년생", "대학생", "취준생",
+    "군인", "장병", "전역", "입대", "현역",
+    "펫", "강아지", "고양이", "반려동물",
+    "자이언츠", "롯데", "야구", "농구",
+    "직장인", "회사원", "과장", "급여", "월급", "주거래",
+    "소액", "소규모", "작은금액", "단기", "짧은기간",
+    "임산부", "임신", "출산", "결혼", "신혼", "여성", "여자",
+    "시니어", "실버", "어르신", "고령", "노인"
+];
 const productContextHints = [
     {pattern: /(롯데\s*)?자이언츠|가을\s*야구|야구\s*적금/i, context: "BNK가을야구적금"},
     {pattern: /펫\s*적금|반려동물|강아지|고양이/i, context: "펫 적금"},
@@ -116,9 +126,23 @@ function rememberQuestionContext(question) {
     }
 }
 
+function hasExplicitQuestionContext(question) {
+    const compact = question.replace(/\s+/g, "");
+    if (/(?:만\s*)?\d{1,3}\s*세|\d{2,3}\s*대/.test(question)) {
+        return true;
+    }
+    if (productContextHints.some((hint) => hint.pattern.test(question))) {
+        return true;
+    }
+    return explicitContextTerms.some((term) => compact.includes(term));
+}
+
 function isFollowUpQuestion(question) {
     const compact = question.replace(/\s+/g, "");
     if (!lastQuestionContext || compact.length > 8) {
+        return false;
+    }
+    if (hasExplicitQuestionContext(question)) {
         return false;
     }
     return followUpMarkers.some((marker) => compact.includes(marker));

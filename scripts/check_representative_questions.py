@@ -194,6 +194,23 @@ CASES = [
         citation_product_contains=["청년도약계좌", "BNK내맘대로 적금"],
     ),
     Case(
+        name="청년 추천은 청년 대상 상품 우선",
+        question="청년 추천",
+        status="DIRECT",
+        answer_contains=["청년도약계좌", "청년 주택드림", "부산청년기쁨두배"],
+        answer_not_contains=["핵심 답변", "확인 내용", "출처:", "다운로드"],
+        citation_product_contains=["청년도약계좌", "청년 주택드림", "부산청년기쁨두배"],
+    ),
+    Case(
+        name="군인 맥락 뒤 청년 추천은 청년 상품으로 전환",
+        question="청년 추천",
+        history=[{"role": "user", "content": "군인이야"}],
+        status="DIRECT",
+        answer_contains=["청년도약계좌", "청년 주택드림", "부산청년기쁨두배"],
+        answer_not_contains=["장병내일준비적금은 군 복무"],
+        citation_product_contains=["청년도약계좌", "청년 주택드림", "부산청년기쁨두배"],
+    ),
+    Case(
         name="장병내일준비적금 서류",
         question="장병내일준비적금 만기 때 어떤 서류가 필요해?",
         answer_contains=["확인서", "제출"],
