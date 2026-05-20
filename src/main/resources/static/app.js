@@ -255,7 +255,7 @@ function renderCitations(citations) {
         return "";
     }
 
-    const cards = citations.slice(0, 3).map((citation) => {
+    const cards = citations.slice(0, 5).map((citation) => {
         const downloadUrl = citation.documentId
             ? `/api/documents/${encodeURIComponent(citation.documentId)}/download`
             : "";
@@ -421,16 +421,17 @@ function welcome() {
     });
 }
 
-async function ask(question) {
+async function ask(question, requestQuestion = question) {
     appendUser(question);
     const loading = appendBot(`<span class="loading">답변을 찾고 있습니다...</span>`);
     const requestHistory = chatHistory.slice(-10);
+    rememberChatTurn("user", question);
 
     try {
         const result = await requestJson("/api/ask", {
             method: "POST",
             body: JSON.stringify({
-                question,
+                question: requestQuestion,
                 sessionId: chatSessionId,
                 history: requestHistory
             })
@@ -441,7 +442,6 @@ async function ask(question) {
             ${renderEvidenceAction(result.historyId, result.citations)}
             ${renderFeedbackActions(result.historyId)}
         `;
-        rememberChatTurn("user", question);
         rememberChatTurn("assistant", result.answer);
         loading.querySelectorAll(".evidence-actions").forEach((actions) => {
             actions.querySelector(".evidence-toggle").addEventListener("click", async () => {
@@ -520,6 +520,7 @@ form.addEventListener("submit", async (event) => {
         return;
     }
     input.value = "";
+    const requestQuestion = resolveQuestionForRequest(question);
     rememberQuestionContext(question);
-    await ask(question);
+    await ask(question, requestQuestion);
 });

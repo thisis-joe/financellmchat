@@ -19,6 +19,7 @@ class Case:
     status: str | None = None
     citation_product_contains: list[str] = field(default_factory=list)
     citation_product_not_contains: list[str] = field(default_factory=list)
+    min_citation_count: int | None = None
     allow_no_citations: bool = False
 
 
@@ -268,6 +269,16 @@ CASES = [
         status="DIRECT",
         answer_contains=["1. BNK내맘대로 적금", "5. 펫 적금"],
         answer_not_contains=["펫 적금은 반려동물"],
+        min_citation_count=5,
+    ),
+    Case(
+        name="20대 후속 추천은 청년 맥락 유지",
+        question="추천",
+        history=[{"role": "user", "content": "나 20대"}],
+        status="DIRECT",
+        answer_contains=["청년도약계좌", "청년"],
+        answer_not_contains=["구체적으로", "말씀은 이해했어요"],
+        citation_product_contains=["청년도약계좌"],
     ),
     Case(
         name="제일 좋은 상품은 기준별 안내",
@@ -389,6 +400,9 @@ def validate(case: Case, payload: dict[str, Any]) -> list[str]:
 
     if not case.allow_no_citations and not citations:
         errors.append("citations expected, actual=none")
+
+    if case.min_citation_count is not None and len(citations) < case.min_citation_count:
+        errors.append(f"citation count expected>={case.min_citation_count}, actual={len(citations)}")
 
     for text in case.answer_contains:
         if text not in answer:

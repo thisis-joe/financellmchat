@@ -1429,7 +1429,8 @@ def build_product_knowledge_response(question: str) -> Optional[AskResponse]:
 
     if documents is None:
         documents = fetch_documents()
-    citations = build_recommendation_citations(documents, [record["productName"] for record in selected[:3]])
+    citation_limit = min(max(3, requested_count(question, len(selected))), 5, len(selected))
+    citations = build_recommendation_citations(documents, [record["productName"] for record in selected[:citation_limit]])
     return AskResponse(question=question, answer=answer, citations=[Citation(**citation) for citation in citations], status="DIRECT")
 
 
@@ -1730,6 +1731,7 @@ def build_best_by_criteria_answer(records: List[Dict[str, Any]]) -> str:
 
 def choose_knowledge_recommendations(question: str, records: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
     age_info = detect_age_info(question)
+    floor = age_floor(age_info)
     key = normalize_key(question)
     preferred_names = contextual_preferred_products(question)
     scored: List[Tuple[float, Dict[str, Any]]] = []
@@ -1743,21 +1745,29 @@ def choose_knowledge_recommendations(question: str, records: List[Dict[str, Any]
         if is_under_19_request(age_info):
             if record["productName"] in TEEN_RECOMMENDATIONS:
                 score += max(0, 8 - TEEN_RECOMMENDATIONS.index(record["productName"]))
-        elif age_floor(age_info) is not None and age_floor(age_info) >= 60:
+        elif floor is not None and floor >= 60:
             if "실버" in tags or "중장년" in tags:
                 score += 8
             if record["productName"] in ("BNK내맘대로 적금", "정기적금"):
                 score += 5
-        elif age_floor(age_info) is not None and age_floor(age_info) >= 30:
+        elif floor is not None and floor >= 30:
             if any(term in key for term in ("과장", "직장인", "회사원", "월급", "급여")) and record["productName"] == "Only One 주거래 우대적금":
                 score += 9
             if record["productName"] in ("BNK내맘대로 적금", "정기적금"):
                 score += 6
-        elif age_floor(age_info) is not None and age_floor(age_info) < 30:
+        elif floor is not None and floor < 30:
             if "청년" in tags:
-                score += 5
-            if record["productName"] in ("BNK내맘대로 적금", "정기적금"):
-                score += 5.5
+                score += 8
+            if record["productName"] == "부산은행 청년도약계좌":
+                score += 1.5
+            if record["productName"] == "청년 주택드림 청약통장":
+                score += 1.0
+            if record["productName"] == "부산청년기쁨두배통장":
+                score += 0.8
+            if record["productName"] == "BNK내맘대로 적금":
+                score += 8.9
+            if record["productName"] == "정기적금":
+                score += 4
         if score > 0:
             scored.append((score, record))
     if not scored:
