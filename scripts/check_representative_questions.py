@@ -272,6 +272,13 @@ CASES = [
         min_citation_count=5,
     ),
     Case(
+        name="10개 추천은 다운로드 근거도 10개 제공",
+        question="10개추천",
+        status="DIRECT",
+        answer_contains=["1. BNK내맘대로 적금", "10."],
+        min_citation_count=10,
+    ),
+    Case(
         name="20대 후속 추천은 청년 맥락 유지",
         question="추천",
         history=[{"role": "user", "content": "나 20대"}],

@@ -107,6 +107,9 @@ YOUTH_RECOMMENDATIONS = [
     "부산은행 청년도약계좌",
     "청년 주택드림 청약통장",
     "부산청년기쁨두배통장",
+    "BNK내맘대로 적금",
+    "Only One 주거래 우대적금",
+    "정기적금",
 ]
 
 SENIOR_CONTEXT_RECOMMENDATIONS = [
@@ -116,6 +119,38 @@ SENIOR_CONTEXT_RECOMMENDATIONS = [
 ]
 
 MILITARY_MARKERS = ("군인", "장병", "군복무", "복무", "입대", "전역", "현역", "병사")
+
+GENERAL_RECOMMENDATION_ORDER = [
+    "BNK내맘대로 적금",
+    "정기적금",
+    "Only One 주거래 우대적금",
+    "저탄소 실천 적금",
+    "펫 적금",
+    "가계우대정기적금",
+    "BNK지역사랑자유적금",
+    "BNK희망가꾸기적금",
+    "부산이라 좋다 Big적금",
+    "BNK가을야구적금",
+    "BNK썸농구단 우승기원적금",
+    "주택청약종합저축",
+]
+
+SHORT_PERIOD_RECOMMENDATIONS = [
+    "부산이라 좋다 Big적금",
+    "BNK썸농구단 우승기원적금",
+    "챌린지적금 with 현대자동차",
+    "정기적금",
+    "BNK내맘대로 적금",
+    "펫 적금",
+]
+
+LOW_AMOUNT_RECOMMENDATIONS = [
+    "정기적금",
+    "가계우대정기적금",
+    "BNK내맘대로 적금",
+    "BNK희망가꾸기적금",
+    "Only One 주거래 우대적금",
+]
 
 PURPOSE_PRODUCT_HINTS = {
     "반려동물": ["펫 적금"],
@@ -1418,7 +1453,7 @@ def build_product_knowledge_response(question: str) -> Optional[AskResponse]:
         selected = choose_general_best_products(records, requested_count(question, 4))
         answer = build_best_by_criteria_answer(selected)
     elif is_recommendation_question(question) and (detect_age_info(question).get("age") is not None or detect_age_info(question).get("age_group") is not None or any(term in key for term in ("과장", "직장인", "회사원", "월급", "급여"))):
-        selected = choose_knowledge_recommendations(question, records, requested_count(question, 3))
+        selected = choose_knowledge_recommendations(question, records, requested_count(question, 4))
         answer = build_knowledge_recommendation_answer(question, selected)
     elif is_recommendation_question(question):
         selected = choose_general_best_products(records, requested_count(question, 3))
@@ -1429,7 +1464,7 @@ def build_product_knowledge_response(question: str) -> Optional[AskResponse]:
 
     if documents is None:
         documents = fetch_documents()
-    citation_limit = min(max(3, requested_count(question, len(selected))), 5, len(selected))
+    citation_limit = min(max(3, requested_count(question, len(selected))), len(selected))
     citations = build_recommendation_citations(documents, [record["productName"] for record in selected[:citation_limit]])
     return AskResponse(question=question, answer=answer, citations=[Citation(**citation) for citation in citations], status="DIRECT")
 
@@ -1704,9 +1739,16 @@ def build_low_amount_answer(records: List[Dict[str, Any]]) -> str:
 
 
 def choose_general_best_products(records: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
-    preferred = ["BNK내맘대로 적금", "정기적금", "Only One 주거래 우대적금", "저탄소 실천 적금", "펫 적금", "가계우대정기적금", "BNK지역사랑자유적금"]
     by_name = {record["productName"]: record for record in records}
-    selected = [by_name[name] for name in preferred if name in by_name]
+    selected = [by_name[name] for name in GENERAL_RECOMMENDATION_ORDER if name in by_name]
+    selected_names = {record["productName"] for record in selected}
+    for record in sorted(records, key=lambda item: item["productName"]):
+        if record["productName"] in selected_names:
+            continue
+        selected.append(record)
+        selected_names.add(record["productName"])
+        if len(selected) >= limit:
+            break
     return selected[:limit]
 
 
@@ -1733,7 +1775,7 @@ def choose_knowledge_recommendations(question: str, records: List[Dict[str, Any]
     age_info = detect_age_info(question)
     floor = age_floor(age_info)
     key = normalize_key(question)
-    preferred_names = contextual_preferred_products(question)
+    preferred_names = recommendation_priority_names(question, age_info)
     scored: List[Tuple[float, Dict[str, Any]]] = []
     for record in records:
         if is_record_age_incompatible(record, age_info):
@@ -1741,7 +1783,7 @@ def choose_knowledge_recommendations(question: str, records: List[Dict[str, Any]
         tags = "".join(record.get("tags") or []) + record["productName"]
         score = 0.0
         if record["productName"] in preferred_names:
-            score += max(0, 12 - preferred_names.index(record["productName"]))
+            score += max(0, 100 - preferred_names.index(record["productName"]))
         if is_under_19_request(age_info):
             if record["productName"] in TEEN_RECOMMENDATIONS:
                 score += max(0, 8 - TEEN_RECOMMENDATIONS.index(record["productName"]))
@@ -1775,6 +1817,47 @@ def choose_knowledge_recommendations(question: str, records: List[Dict[str, Any]
     scored.sort(key=lambda item: (-item[0], item[1]["productName"]))
     selected = [record for _, record in scored[:limit]]
     return fill_knowledge_recommendations(selected, records, age_info, limit)
+
+
+def recommendation_priority_names(question: str, age_info: Dict[str, Optional[int]]) -> List[str]:
+    key = normalize_key(question)
+    names: List[str] = []
+
+    for name in contextual_preferred_products(question):
+        append_unique(names, name)
+
+    if any(term in key for term in ("단기", "짧은기간", "2개월", "두달", "2달", "6개월", "육개월")):
+        for name in SHORT_PERIOD_RECOMMENDATIONS:
+            append_unique(names, name)
+
+    if any(term in key for term in ("소규모", "소액", "적게", "작게", "부담없이", "부담적", "작은금액")):
+        for name in LOW_AMOUNT_RECOMMENDATIONS:
+            append_unique(names, name)
+
+    floor = age_floor(age_info)
+    if is_under_19_request(age_info):
+        for name in TEEN_RECOMMENDATIONS:
+            append_unique(names, name)
+    elif floor is not None and floor >= 56:
+        for name in SENIOR_RECOMMENDATIONS:
+            append_unique(names, name)
+    elif floor is not None and 19 <= floor < 30:
+        for name in YOUTH_RECOMMENDATIONS:
+            append_unique(names, name)
+    elif floor is not None and 30 <= floor <= 34 and age_info.get("age") is not None:
+        for name in ("부산은행 청년도약계좌", "청년 주택드림 청약통장", "Only One 주거래 우대적금", "BNK내맘대로 적금", "정기적금"):
+            append_unique(names, name)
+    elif floor is not None and floor >= 30:
+        for name in ("Only One 주거래 우대적금", "BNK내맘대로 적금", "정기적금", "저탄소 실천 적금"):
+            append_unique(names, name)
+
+    if any(term in key for term in ("직장인", "회사원", "과장", "월급", "급여", "주거래")):
+        for name in ("Only One 주거래 우대적금", "BNK내맘대로 적금", "정기적금"):
+            append_unique(names, name)
+
+    for name in GENERAL_RECOMMENDATION_ORDER:
+        append_unique(names, name)
+    return names
 
 
 def contextual_preferred_products(question: str) -> List[str]:

@@ -255,7 +255,7 @@ function renderCitations(citations) {
         return "";
     }
 
-    const cards = citations.slice(0, 5).map((citation) => {
+    const cards = citations.map((citation) => {
         const downloadUrl = citation.documentId
             ? `/api/documents/${encodeURIComponent(citation.documentId)}/download`
             : "";
